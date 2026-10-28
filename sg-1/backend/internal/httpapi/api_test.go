@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,14 +13,18 @@ import (
 	"testing"
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 )
 
 const testToken = "test-token-at-least-thirty-two-characters"
 
 type fakeRepository struct {
-	createCalls int
-	failPing    bool
-	createErr   error
+	createCalls          int
+	failPing             bool
+	createErr            error
+	credentialUser       string
+	credentialCiphertext []byte
+	credentialCalls      int
 }
 
 func (s *fakeRepository) Ping(context.Context) error {
@@ -42,6 +48,22 @@ func (s *fakeRepository) Project(context.Context, domain.User, string) (domain.P
 func (s *fakeRepository) CreateProject(_ context.Context, _ domain.User, p domain.CreateProject, _ string) (domain.Project, bool, error) {
 	s.createCalls++
 	return domain.Project{Name: p.Name, Slug: p.Slug, Status: "provisioning", AccessMode: "password"}, true, s.createErr
+}
+
+func (s *fakeRepository) LLMCredentials(_ context.Context, userID string) ([]domain.LLMCredentialStatus, error) {
+	s.credentialUser = userID
+	return []domain.LLMCredentialStatus{}, nil
+}
+func (s *fakeRepository) SaveLLMCredential(_ context.Context, userID, provider string, ciphertext []byte) (domain.LLMCredentialStatus, error) {
+	s.credentialUser = userID
+	s.credentialCiphertext = ciphertext
+	s.credentialCalls++
+	return domain.LLMCredentialStatus{Provider: provider, Configured: true}, nil
+}
+func (s *fakeRepository) DeleteLLMCredential(_ context.Context, userID, provider string) error {
+	s.credentialUser = userID
+	s.credentialCalls++
+	return nil
 }
 
 func testAPI(s *fakeRepository) *API {
@@ -135,6 +157,76 @@ func TestStoreErrorsDoNotExposeSecrets(t *testing.T) {
 		testAPI(s).Handler().ServeHTTP(w, r)
 		if w.Code != tc.status || strings.Contains(w.Body.String(), "supersecret") {
 			t.Fatalf("unsafe or incorrect error response: %s", w.Body.String())
+		}
+	}
+}
+
+func TestLLMCredentialEndpoints(t *testing.T) {
+	vault, err := secrets.NewVault(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "synthetic-test-key-never-expose-in-response"
+	for _, provider := range []string{"openai", "anthropic", "glm", "kimi"} {
+		s := &fakeRepository{}
+		a := testAPI(s)
+		a.Vault = vault
+		r := httptest.NewRequest(http.MethodPut, "/v1/settings/llm-providers/"+provider, strings.NewReader(`{"api_key":"`+key+`"}`))
+		r.Header.Set("Authorization", "Bearer "+testToken)
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		a.Handler().ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		if strings.Contains(w.Body.String(), key) || bytes.Contains(s.credentialCiphertext, []byte(key)) {
+			t.Fatal("key exposed as plaintext")
+		}
+		if s.credentialUser != "test-user" {
+			t.Fatal("credential not scoped to authenticated user")
+		}
+		plain, err := vault.Open("test-user", provider, s.credentialCiphertext)
+		if err != nil || string(plain) != key {
+			t.Fatal("key not recoverable in trusted backend", err)
+		}
+	}
+}
+
+func TestLLMCredentialGuards(t *testing.T) {
+	vault, _ := secrets.NewVault(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)))
+	for _, tc := range []struct {
+		method, path, body, token string
+		vault                     bool
+		want                      int
+	}{
+		{"GET", "/v1/settings/llm-providers", "", "", true, 401},
+		{"GET", "/v1/settings/llm-providers", "", testToken, false, 503},
+		{"GET", "/v1/settings/llm-providers", "", testToken, true, 200},
+		{"PUT", "/v1/settings/llm-providers/openai", `{"api_key":"synthetic-valid-test-key"}`, testToken, false, 503},
+		{"PUT", "/v1/settings/llm-providers/unknown", `{"api_key":"synthetic-valid-test-key"}`, testToken, true, 400},
+		{"PUT", "/v1/settings/llm-providers/openai", `{"api_key":"short"}`, testToken, true, 400},
+		{"PUT", "/v1/settings/llm-providers/openai", `{"api_key":"synthetic-valid-test-key","user_id":"other"}`, testToken, true, 400},
+		{"PUT", "/v1/settings/llm-providers/openai", `{"api_key":"synthetic-valid-test-key"}{}`, testToken, true, 400},
+		{"DELETE", "/v1/settings/llm-providers/openai", "", "", true, 401},
+		{"DELETE", "/v1/settings/llm-providers/openai", "", testToken, false, 204},
+	} {
+		s := &fakeRepository{}
+		a := testAPI(s)
+		if tc.vault {
+			a.Vault = vault
+		}
+		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		r.Header.Set("Content-Type", "application/json")
+		if tc.token != "" {
+			r.Header.Set("Authorization", "Bearer "+tc.token)
+		}
+		w := httptest.NewRecorder()
+		a.Handler().ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("%s %s: got %d want %d", tc.method, tc.path, w.Code, tc.want)
+		}
+		if tc.want >= 400 && s.credentialCalls > 0 {
+			t.Fatal("rejected request reached credential mutation")
 		}
 	}
 }

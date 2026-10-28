@@ -12,6 +12,7 @@ This document records the agreed requirements, recommended architecture, impleme
 - [x] Authorized project listing/details and transactional, idempotent project creation with globally unique slugs.
 - [x] Explicitly development-only authentication; production access fails closed until SSO is implemented.
 - [x] Local Docker Compose stack and non-root application images.
+- [x] Personal OpenAI, Claude/Anthropic, GLM, and Kimi API-key settings with encrypted storage, replacement, removal, and audit events.
 - [x] Unit/integration tests and CI definitions; browser smoke-test coverage.
 - [ ] Entra ID / OneLogin and membership-management UI/API.
 - [ ] AWS infrastructure and isolated project provisioning; no generated project containers run yet.
@@ -462,7 +463,20 @@ Terminal or exceptional states include `failed`, `cancelled`, and `timed_out`. S
 
 ## 12. AI orchestration
 
-- Keep provider integration behind a Go-side abstraction; provider/model selection remains open.
+### Personal provider credentials (implemented)
+
+- Users manage their own OpenAI, Claude (Anthropic), GLM, and Kimi keys at `/settings/providers`.
+- Credential records are unique per user/provider; the API always derives the owner from the authenticated session.
+- Store only AES-256-GCM encrypted key material, bound to the owner and provider using authenticated associated data.
+- Keep the master encryption key outside PostgreSQL, project code, frontend configuration, and source control. Local setup uses `SG1_CREDENTIALS_KEY`; production requires approved secrets injection.
+- Return status and timestamps only, never the key, a suffix, or ciphertext. Users replace/remove keys instead of revealing them.
+- Audit saves/removals without including credential values. Require authenticated, same-origin settings mutations.
+- Current storage does not verify keys, select models, or make provider calls. Those belong to the AI-orchestration implementation.
+- Current development authentication uses one shared identity. Production key use requires individual employee SSO, provider approval, appropriate secret access policies, and a key rotation/recovery procedure.
+
+### Orchestration requirements
+
+- Keep provider integration behind a Go-side abstraction; model selection, live integrations, and provider data-processing approval remain open.
 - Stream user-visible status, command results, and build outcomes, not hidden model reasoning.
 - Give the model project-scoped tools rather than unrestricted AWS, GitHub, database, or host access.
 - Keep production secrets and data out of prompts and ordinary build environments.

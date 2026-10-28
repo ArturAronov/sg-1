@@ -12,6 +12,7 @@ import (
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/config"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/httpapi"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -81,6 +82,14 @@ func run(logger *slog.Logger) error {
 		return nil
 	}
 	api := &httpapi.API{Store: s, Logger: logger, Development: true, DevToken: c.DevToken, DevUserID: store.DevUserID}
+	if c.CredentialsKey != "" {
+		api.Vault, err = secrets.NewVault(c.CredentialsKey)
+		if err != nil {
+			return err
+		}
+	} else {
+		logger.Warn("secure LLM credential storage disabled; configure SG1_CREDENTIALS_KEY")
+	}
 	server := &http.Server{Addr: c.ListenAddr, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		<-ctx.Done()

@@ -4,6 +4,7 @@ name: sg1
 x-backend-environment: &backend-environment
   SG1_ENV: development
   SG1_DEV_TOKEN: ${SG1_DEV_TOKEN:?Set a random SG1_DEV_TOKEN in .env first}
+  SG1_CREDENTIALS_KEY: ${SG1_CREDENTIALS_KEY:-}
   SG1_DATABASE_URL: postgres://sg1:sg1_local_only@postgres:5432/sg1?sslmode=disable
   SG1_LISTEN_ADDR: 0.0.0.0:8080
 

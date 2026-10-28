@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icon";
+import { WorkspaceBreadcrumb, WorkspaceNavigation } from "@/components/workspace-navigation";
 import type { User } from "@/lib/types";
 
 export function Shell({ user, children }: { user: User; children: React.ReactNode }) {
@@ -9,13 +10,7 @@ export function Shell({ user, children }: { user: User; children: React.ReactNod
       <aside className="sidebar">
         <Brand />
         <div className="workspace-label">YOUR WORKSPACE</div>
-        <nav aria-label="Main navigation">
-          <Link className="nav-link active" href="/">
-            <Icon name="grid" />
-            Projects
-            <span className="nav-dot" />
-          </Link>
-        </nav>
+        <WorkspaceNavigation />
         <div className="sidebar-note">
           <span className="tiny-label">FROM IDEA TO INTERNAL TOOL</span>
           <p>
@@ -46,9 +41,14 @@ export function Shell({ user, children }: { user: User; children: React.ReactNod
       </aside>
       <div className="main-column">
         <header className="topbar">
-          <span className="breadcrumb">
-            Workspace <span>/</span> <strong>Projects</strong>
-          </span>
+          <WorkspaceBreadcrumb />
+          <Link
+            href="/settings/providers"
+            className="mobile-provider-link"
+            aria-label="AI providers"
+          >
+            <Icon name="key" size={17} />
+          </Link>
           <span className="environment-badge">
             <span />
             FOUNDATION BUILD

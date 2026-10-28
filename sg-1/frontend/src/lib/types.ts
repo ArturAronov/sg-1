@@ -19,3 +19,12 @@ export type Me = {
   authentication: "development";
   capabilities: { provisioning: boolean; ai_builds: boolean; sso: boolean };
 };
+
+export type LLMProviderID = "openai" | "anthropic" | "glm" | "kimi";
+export type LLMProvider = { id: LLMProviderID; name: string; description: string };
+export type LLMCredentialStatus = {
+  provider: LLMProviderID;
+  configured: boolean;
+  updated_at: string | null;
+};
+export type LLMSettings = { providers: LLMProvider[]; credentials: LLMCredentialStatus[] };

@@ -16,6 +16,7 @@ const paths = {
   shield: "M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6l-9-4z M8 12l3 3 5-6",
   logout: "M9 3H3v18h6 M9 12h12 M16 7l5 5-5 5",
   message: "M3 3h18v14H8l-5 4V3z M7 8h10 M7 12h6",
+  key: "M15 3a6 6 0 1 1-4.8 9.6L3 20v1h4v-3h3v-3l1.2-1.2 M16 7h.01",
 } as const;
 
 export function Icon({

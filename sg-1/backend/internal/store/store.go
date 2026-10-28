@@ -16,11 +16,11 @@ const DevUserID = "00000000-0000-4000-8000-000000000001"
 type Store struct{ Pool *pgxpool.Pool }
 
 func (s *Store) Ping(ctx context.Context) error {
-	var applied bool
-	if err := s.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE name='0001_control_plane.sql')`).Scan(&applied); err != nil {
+	var applied int
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql')`).Scan(&applied); err != nil {
 		return err
 	}
-	if !applied {
+	if applied != 2 {
 		return errors.New("control-plane migrations have not been applied")
 	}
 	return nil

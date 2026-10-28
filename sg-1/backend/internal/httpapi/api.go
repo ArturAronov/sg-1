@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 )
 
 type Repository interface {
@@ -23,6 +24,9 @@ type Repository interface {
 	Projects(context.Context, domain.User) ([]domain.Project, error)
 	Project(context.Context, domain.User, string) (domain.Project, error)
 	CreateProject(context.Context, domain.User, domain.CreateProject, string) (domain.Project, bool, error)
+	LLMCredentials(context.Context, string) ([]domain.LLMCredentialStatus, error)
+	SaveLLMCredential(context.Context, string, string, []byte) (domain.LLMCredentialStatus, error)
+	DeleteLLMCredential(context.Context, string, string) error
 }
 
 type API struct {
@@ -32,6 +36,7 @@ type API struct {
 	Development bool
 	DevToken    string
 	DevUserID   string
+	Vault       *secrets.Vault
 }
 
 type userContextKey struct{}
@@ -81,6 +86,9 @@ func (a *API) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{"project": p})
 	})
 	protected.HandleFunc("POST /v1/projects", a.createProject)
+	protected.HandleFunc("GET /v1/settings/llm-providers", a.listLLMProviders)
+	protected.HandleFunc("PUT /v1/settings/llm-providers/{provider}", a.saveLLMCredential)
+	protected.HandleFunc("DELETE /v1/settings/llm-providers/{provider}", a.deleteLLMCredential)
 	mux.Handle("/v1/", a.authenticate(protected))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
