@@ -79,6 +79,7 @@ func TestAuthentication(t *testing.T) {
 	}{
 		{"/healthz", "", 200}, {"/readyz", "", 200}, {"/v1/projects", "", 401},
 		{"/v1/projects", "wrong", 401}, {"/v1/projects", testToken, 200},
+		{"/v1/projects/private/runtime", "", 401}, {"/v1/projects/private/source", "", 401}, {"/v1/projects/private/files", "", 401},
 	} {
 		r := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		if tc.token != "" {

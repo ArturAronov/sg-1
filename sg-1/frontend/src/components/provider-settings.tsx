@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/icon";
+import { useHydrated } from "@/lib/hydration";
 import type { LLMCredentialStatus, LLMProvider, LLMSettings } from "@/lib/types";
 
 export function ProviderSettings({ settings }: { settings: LLMSettings }) {
@@ -55,10 +56,9 @@ export function ProviderSettings({ settings }: { settings: LLMSettings }) {
       <div className="foundation-note">
         <Icon name="code" size={18} />
         <p>
-          <strong>Credential storage only.</strong> Keys are saved but not verified with providers.
-          AI builds are not connected yet; saving a key does not make an API call or incur model
-          usage charges. Local sign-ins share one development account. Use restricted test keys
-          until employee SSO is connected.
+          <strong>Your account pays for model usage.</strong> Saving a key makes no provider call.
+          Load models and submit builds from a project to use it. Local sign-ins share one
+          development account; use restricted test keys until employee SSO is connected.
         </p>
       </div>
     </main>
@@ -72,6 +72,7 @@ function ProviderCard({
   provider: LLMProvider;
   initial: LLMCredentialStatus;
 }) {
+  const hydrated = useHydrated();
   const [status, setStatus] = useState(initial);
   const [key, setKey] = useState("");
   const [editing, setEditing] = useState(!initial.configured);
@@ -156,7 +157,7 @@ function ProviderCard({
             minLength={16}
             maxLength={4096}
             value={key}
-            disabled={busy}
+            disabled={busy || !hydrated}
             onChange={(e) => {
               setKey(e.target.value);
               setMessage("");

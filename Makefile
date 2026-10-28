@@ -1,10 +1,10 @@
-.PHONY: setup dev stop logs check integration build
+.PHONY: setup dev stop logs check integration runtime-test build
 
 setup:
 	node scripts/setup.mjs
 
 dev:
-	docker compose up --build -d
+	docker compose up --build -d --wait
 
 stop:
 	docker compose down
@@ -21,3 +21,6 @@ integration:
 
 build:
 	docker compose build
+
+runtime-test:
+	node --env-file=.env scripts/test-runtime.mjs

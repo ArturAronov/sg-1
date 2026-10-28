@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/config"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/httpapi"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/platform"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/storage"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,7 +34,7 @@ func run(logger *slog.Logger) error {
 	if len(os.Args) > 1 {
 		command = os.Args[1]
 	}
-	if command != "serve" && command != "migrate" && command != "seed-dev" {
+	if command != "serve" && command != "migrate" && command != "seed-dev" && command != "worker" && command != "gateway" && command != "storage-init" {
 		logger.Error("usage: sg1 [serve|migrate|seed-dev]")
 		return errors.New("unknown command")
 	}
@@ -40,7 +43,7 @@ func run(logger *slog.Logger) error {
 		logger.Error("invalid configuration", "reason", err.Error())
 		return err
 	}
-	if command == "serve" && c.Environment != "development" {
+	if (command == "serve" || command == "worker" || command == "gateway") && c.Environment != "development" {
 		logger.Error("production server is disabled until SSO is implemented")
 		return errors.New("SSO unavailable")
 	}
@@ -50,6 +53,37 @@ func run(logger *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var objects *storage.S3
+	if bucket := os.Getenv("SG1_S3_BUCKET"); bucket != "" {
+		region := os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "us-east-1"
+		}
+		objects, err = storage.New(ctx, bucket, os.Getenv("SG1_S3_ENDPOINT"), region, os.Getenv("SG1_S3_ACCESS_KEY"), os.Getenv("SG1_S3_SECRET"))
+		if err != nil {
+			return err
+		}
+	}
+	if command == "storage-init" {
+		if c.Environment != "development" || objects == nil {
+			return errors.New("local storage initialization is not configured")
+		}
+		for range 30 {
+			attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err = objects.Initialize(attempt)
+			cancel()
+			if err == nil {
+				logger.Info("private development object bucket ready")
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+			}
+		}
+		return errors.New("object storage did not become ready")
+	}
 	poolConfig, err := pgxpool.ParseConfig(c.DatabaseURL)
 	if err != nil {
 		return err
@@ -82,6 +116,7 @@ func run(logger *slog.Logger) error {
 		return nil
 	}
 	api := &httpapi.API{Store: s, Logger: logger, Development: true, DevToken: c.DevToken, DevUserID: store.DevUserID}
+	api.Files = objects
 	if c.CredentialsKey != "" {
 		api.Vault, err = secrets.NewVault(c.CredentialsKey)
 		if err != nil {
@@ -90,7 +125,27 @@ func run(logger *slog.Logger) error {
 	} else {
 		logger.Warn("secure LLM credential storage disabled; configure SG1_CREDENTIALS_KEY")
 	}
+	if c.Runtime == "docker" && api.Vault != nil {
+		signing := sha256.Sum256([]byte("sg1-gateway/v1:" + c.CredentialsKey))
+		api.Platform = &platform.Service{Store: s, Vault: api.Vault, AppOrigin: c.AppOrigin, DatabaseHost: "sg1-postgres-1", SigningKey: signing[:], Provider: &platform.ProviderClient{}, GatewayURL: "http://gateway:8081"}
+	}
+	if command == "worker" {
+		if api.Platform == nil {
+			return errors.New("runtime is not configured")
+		}
+		api.Platform.Docker = &platform.Docker{NetworkPrefix: "sg1-project-", GatewayContainer: "sg1-gateway-1", PostgresContainer: "sg1-postgres-1"}
+		return api.Platform.RunWorker(ctx, logger)
+	}
 	server := &http.Server{Addr: c.ListenAddr, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	if command == "gateway" {
+		if api.Platform == nil {
+			return errors.New("runtime is not configured")
+		}
+		server.Addr = "0.0.0.0:8081"
+		server.Handler = api.Platform.Gateway(c.PublicURL)
+		server.ReadTimeout = 0
+		server.WriteTimeout = 0
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

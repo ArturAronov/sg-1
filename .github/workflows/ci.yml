@@ -71,6 +71,11 @@ jobs:
           cache-dependency-path: sg-1/frontend/package-lock.json
       - run: node scripts/setup.mjs
       - run: docker compose up --build -d --wait
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sg-1/backend/go.mod
+          cache-dependency-path: sg-1/backend/go.sum
+      - run: node --env-file=.env scripts/test-runtime.mjs
       - run: npm ci
         working-directory: sg-1/frontend
       - run: npx playwright install --with-deps chromium

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 const token = process.env.SG1_DEV_TOKEN;
 if (!token || token.length < 32)
@@ -24,7 +25,8 @@ test("rejects incorrect tokens and cross-origin mutations", async ({ page, reque
   expect(response.status()).toBe(403);
 });
 
-test("create a persistent protected project and open its builder", async ({ page, baseURL }) => {
+test("create a real protected container and open its builder", async ({ page, baseURL }) => {
+  test.setTimeout(180000);
   await page.goto("/login");
   await page.getByLabel("Development token").fill(token!);
   await page.getByRole("button", { name: "Open workspace" }).click();
@@ -40,11 +42,72 @@ test("create a persistent protected project and open its builder", async ({ page
   await page.getByRole("button", { name: "Create workspace", exact: true }).click();
   await expect(page).toHaveURL(`${baseURL}/build/${slug}`);
   await expect(page.getByRole("heading", { name })).toBeVisible();
-  await expect(page.getByText("Password protection enabled")).toBeVisible();
+  await expect(page.getByText("Container running", { exact: true })).toBeVisible({
+    timeout: 150000,
+  });
+  await expect(page.getByRole("textbox", { name: "Build request" })).toBeEnabled();
   await expect(
-    page.getByText("No container is running for this project yet.", { exact: false }),
-  ).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Build request" })).toBeDisabled();
+    page
+      .frameLocator('iframe[title="Application preview"]')
+      .getByRole("heading", { name: "Your project is running." }),
+  ).toBeVisible({ timeout: 15000 });
+  const source = await page.request.get(`/api/projects/${slug}/source`);
+  expect(source.status()).toBe(200);
+  expect((await source.body()).subarray(0, 2).toString()).toBe("PK");
+  await page.getByText("Private project files (0)", { exact: true }).click();
+  await page.getByLabel("Project file", { exact: true }).setInputFiles({
+    name: "example.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("persistent project attachment"),
+  });
+  await page.getByRole("button", { name: "Upload file", exact: true }).click();
+  await expect(page.getByText("example.txt", { exact: true })).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download", exact: true }).click();
+  const download = await downloading;
+  expect(await readFile((await download.path())!, "utf8")).toBe("persistent project attachment");
+  await page.getByText("Sharing & passwords", { exact: true }).click();
+  await page.getByLabel("New application password").fill("browser-test-password-123");
+  await page.getByRole("button", { name: "Save access settings" }).click();
+  await expect(page.getByText("Access settings saved.", { exact: false })).toBeVisible();
+  const visitor = await page.context().browser()!.newContext();
+  try {
+    const app = await visitor.newPage();
+    await app.goto(`${baseURL}/${slug}`);
+    const frame = app.frameLocator('iframe[title="Published application"]');
+    await expect(frame.getByRole("heading", { name: "Password required" })).toBeVisible();
+    await frame.getByLabel("Application password").fill("browser-test-password-123");
+    await frame.getByRole("button", { name: "Open application" }).click();
+    await expect(frame.getByRole("heading", { name: "Your project is running." })).toBeVisible();
+    await page.getByLabel("Application access", { exact: true }).selectOption("public");
+    await page.getByRole("checkbox").check();
+    const sharing = page.waitForResponse(
+      (r) => r.url().endsWith(`/api/projects/${slug}/access`) && r.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "Save access settings" }).click();
+    expect((await sharing).ok()).toBe(true);
+    const anonymous = await page.context().browser()!.newContext();
+    try {
+      const publicPage = await anonymous.newPage();
+      await publicPage.goto(`${baseURL}/${slug}`);
+      const publicFrame = publicPage.frameLocator('iframe[title="Published application"]');
+      await expect(
+        publicFrame.getByRole("heading", { name: "Your project is running." }),
+      ).toBeVisible();
+      await page.getByLabel("Application access", { exact: true }).selectOption("password");
+      const protecting = page.waitForResponse(
+        (r) => r.url().endsWith(`/api/projects/${slug}/access`) && r.request().method() === "PUT",
+      );
+      await page.getByRole("button", { name: "Save access settings" }).click();
+      expect((await protecting).ok()).toBe(true);
+      await publicPage.reload();
+      await expect(publicFrame.getByRole("heading", { name: "Password required" })).toBeVisible();
+    } finally {
+      await anonymous.close();
+    }
+  } finally {
+    await visitor.close();
+  }
   await page.reload();
   await expect(page.getByRole("heading", { name })).toBeVisible();
   await page.getByRole("link", { name: "All projects" }).click();

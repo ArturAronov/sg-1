@@ -10,8 +10,8 @@ export default function NotFound() {
       <span className="tiny-label">NOT AVAILABLE</span>
       <h1>Nothing published here yet.</h1>
       <p>
-        This address has no available application. Application serving is not connected in this
-        foundation build.
+        This address has no available application. It may still be starting or you may not have
+        access to this project.
       </p>
       <Link href="/" className="button primary">
         Go to workspace

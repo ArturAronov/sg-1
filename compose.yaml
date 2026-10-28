@@ -7,8 +7,37 @@ x-backend-environment: &backend-environment
   SG1_CREDENTIALS_KEY: ${SG1_CREDENTIALS_KEY:-}
   SG1_DATABASE_URL: postgres://sg1:sg1_local_only@postgres:5432/sg1?sslmode=disable
   SG1_LISTEN_ADDR: 0.0.0.0:8080
+  SG1_RUNTIME: docker
+  SG1_APP_ORIGIN: http://{slug}.localhost:8081
+  SG1_PUBLIC_URL: ${SG1_PUBLIC_URL:-http://localhost:3000}
+  SG1_S3_ENDPOINT: http://object-store:8333
+  SG1_S3_BUCKET: sg1-project-files
+  SG1_S3_ACCESS_KEY: sg1_local
+  SG1_S3_SECRET: ${SG1_S3_SECRET:?Run node scripts/setup.mjs to configure local object storage}
 
 services:
+  object-store:
+    image: chrislusf/seaweedfs:4.51
+    working_dir: /data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        umask 077
+        printf '{"identities":[{"name":"sg1","credentials":[{"accessKey":"sg1_local","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' "$$SG1_S3_SECRET" > /tmp/sg1-s3.json
+        exec weed server -dir=/data -s3 -s3.config=/tmp/sg1-s3.json -ip=object-store -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=100 -volume.max=16
+    environment:
+      SG1_S3_SECRET: ${SG1_S3_SECRET:?Run node scripts/setup.mjs}
+    volumes:
+      - object_data:/data
+
+  storage-init:
+    image: sg1-api:local
+    command: ["storage-init"]
+    environment: *backend-environment
+    depends_on:
+      object-store:
+        condition: service_started
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -48,6 +77,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
+      storage-init:
+        condition: service_completed_successfully
       seed:
         condition: service_completed_successfully
     healthcheck:
@@ -55,6 +86,36 @@ services:
       interval: 5s
       timeout: 3s
       retries: 15
+
+  gateway:
+    image: sg1-api:local
+    command: ["gateway"]
+    environment: *backend-environment
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  worker:
+    image: sg1-api:local
+    command: ["worker"]
+    # LOCAL DEVELOPMENT ONLY: this trusted worker has host-level Docker access.
+    # Generated application containers never receive the socket or these secrets.
+    user: "0:0"
+    environment: *backend-environment
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      gateway:
+        condition: service_healthy
+      api:
+        condition: service_healthy
 
   web:
     build: ./sg-1/frontend
@@ -64,6 +125,7 @@ services:
       SG1_DEV_TOKEN: ${SG1_DEV_TOKEN:?Set a random SG1_DEV_TOKEN in .env first}
       SG1_API_URL: http://api:8080
       SG1_PUBLIC_URL: ${SG1_PUBLIC_URL:-http://localhost:3000}
+      SG1_APP_ORIGIN: http://{slug}.localhost:8081
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -77,3 +139,4 @@ services:
 
 volumes:
   postgres_data:
+  object_data:

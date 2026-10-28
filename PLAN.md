@@ -1,6 +1,6 @@
 # SG-1 — Product and Implementation Plan
 
-Status: local foundation implemented; production integrations and AWS provisioning are not implemented yet.
+Status: local end-to-end Docker build/deployment pipeline implemented. Production SSO, AWS hosting, GitHub source synchronization, and security sign-off remain outstanding.
 
 This document records the agreed requirements, recommended architecture, implementation sequence, and decisions still needed. Items marked **proposed** are recommendations, not requirements already approved by stakeholders.
 
@@ -15,13 +15,17 @@ This document records the agreed requirements, recommended architecture, impleme
 - [x] Personal OpenAI, Claude/Anthropic, GLM, and Kimi API-key settings with encrypted storage, replacement, removal, and audit events.
 - [x] Unit/integration tests and CI definitions; browser smoke-test coverage.
 - [ ] Entra ID / OneLogin and membership-management UI/API.
-- [ ] AWS infrastructure and isolated project provisioning; no generated project containers run yet.
-- [ ] Isolated application gateway, password enforcement, and public serving.
-- [ ] S3 uploads and persistent per-project databases.
-- [ ] AI orchestration, validated builds, deployment, and rollback.
+- [x] Real local project-container provisioning before the first prompt, including separate production/preview PostgreSQL databases and credentials.
+- [x] Local isolated-origin application gateway, password enforcement, public access, protected employee previews, and access-session revocation.
+- [x] Private S3-protocol file uploads/downloads using persistent local SeaweedFS storage and an AWS S3 adapter.
+- [x] OpenAI Responses, Anthropic Messages, GLM/Kimi compatible provider clients, model selection, bounded build/repair attempts, health-validated deployment, history, and image rollback.
+- [x] Real Docker integration tests for successful/failed builds, rollback, persistent records, and control-plane database isolation. Provider responses are synthetic in tests, not paid live calls.
+- [ ] AWS infrastructure, CodeBuild/ECR/ECS/Fargate deployment, and production S3 setup.
+- [ ] Generated source synchronized into GitHub `projects/{department}/{project}`; current source lives in versioned database snapshots with ZIP export.
+- [ ] Reviewed database migration safeguards, production untrusted-code isolation, resource quotas, malware scanning, and retention/archival workflows.
 - [ ] Production hardening, recovery rehearsal, and pilot approval.
 
-The current create-project flow reserves metadata and immediately queues provisioning. It does not yet satisfy the final requirement to start a project container; the UI explicitly reports this missing integration. See README.md for runnable local setup and current limitations.
+Creating a project now immediately queues real local provisioning; the worker builds a starter image, creates persistent databases and private networking, starts a health-checked container, and enables its preview. Chat can then generate and deploy applications using a saved provider key and selected model. This is a development implementation, not an ECS deployment or a production-ready multi-user platform. See README.md for setup, tested functionality, and remaining blockers.
 
 ## 1. Product goal
 
@@ -471,12 +475,12 @@ Terminal or exceptional states include `failed`, `cancelled`, and `timed_out`. S
 - Keep the master encryption key outside PostgreSQL, project code, frontend configuration, and source control. Local setup uses `SG1_CREDENTIALS_KEY`; production requires approved secrets injection.
 - Return status and timestamps only, never the key, a suffix, or ciphertext. Users replace/remove keys instead of revealing them.
 - Audit saves/removals without including credential values. Require authenticated, same-origin settings mutations.
-- Current storage does not verify keys, select models, or make provider calls. Those belong to the AI-orchestration implementation.
+- Saving credentials alone does not verify keys or make provider calls. The project builder now explicitly loads models and submits requests through the selected provider adapter.
 - Current development authentication uses one shared identity. Production key use requires individual employee SSO, provider approval, appropriate secret access policies, and a key rotation/recovery procedure.
 
 ### Orchestration requirements
 
-- Keep provider integration behind a Go-side abstraction; model selection, live integrations, and provider data-processing approval remain open.
+- Provider integrations use a Go-side abstraction with OpenAI Responses, Anthropic Messages, and GLM/Kimi compatible clients. Company-approved models, paid live-provider validation, and data-processing approval remain open.
 - Stream user-visible status, command results, and build outcomes, not hidden model reasoning.
 - Give the model project-scoped tools rather than unrestricted AWS, GitHub, database, or host access.
 - Keep production secrets and data out of prompts and ordinary build environments.

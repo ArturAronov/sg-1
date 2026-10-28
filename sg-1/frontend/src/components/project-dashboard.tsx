@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import { suggestSlug } from "@/lib/slug";
 import type { Department, Project } from "@/lib/types";
@@ -14,6 +14,12 @@ export function ProjectDashboard({
   projects: Project[];
   departments: Department[];
 }) {
+  const router = useRouter();
+  useEffect(() => {
+    if (!projects.some((p) => p.status === "provisioning")) return;
+    const timer = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(timer);
+  }, [projects, router]);
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("");
   const [creating, setCreating] = useState(false);
@@ -176,8 +182,8 @@ export function ProjectDashboard({
       <div className="foundation-note">
         <Icon name="code" size={18} />
         <p>
-          <strong>The foundation is taking shape.</strong> Project records and permissions are
-          persistent. Container provisioning, SSO, and AI builds are not connected yet.
+          <strong>Local Docker workspace.</strong> Projects start real containers. Add your API key
+          and choose a model to build. AWS deployment and employee SSO still need production setup.
         </p>
       </div>
       <footer className="page-footer">
@@ -193,7 +199,7 @@ export function ProjectDashboard({
 
 function statusLabel(status: Project["status"]): string {
   return {
-    provisioning: "Awaiting provisioner",
+    provisioning: "Starting container",
     ready: "Ready",
     failed: "Needs attention",
     archiving: "Archiving",
@@ -341,8 +347,8 @@ function CreateProject({ departments, close }: { departments: Department[]; clos
           <div className="info-box">
             <Icon name="lock" size={16} />
             <span>
-              Protected by default. This currently reserves the workspace and queues provisioning;
-              it does not start a container yet.
+              Protected by default. Creating a project starts a real container and provisions
+              persistent databases before you send a prompt.
             </span>
           </div>
           {error && (

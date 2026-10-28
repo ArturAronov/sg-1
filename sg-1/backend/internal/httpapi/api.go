@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/platform"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/storage"
 )
 
 type Repository interface {
@@ -37,6 +39,8 @@ type API struct {
 	DevToken    string
 	DevUserID   string
 	Vault       *secrets.Vault
+	Platform    *platform.Service
+	Files       *storage.S3
 }
 
 type userContextKey struct{}
@@ -58,8 +62,26 @@ func (a *API) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
 	protected := http.NewServeMux()
+	mux.HandleFunc("GET /public/projects/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		if a.Platform == nil {
+			writeError(w, 503, "runtime_unavailable", "Application serving is not configured")
+			return
+		}
+		slug := r.PathValue("slug")
+		if domain.ValidateSlug(slug) != nil {
+			writeError(w, 404, "not_found", "Application not found")
+			return
+		}
+		var ready bool
+		err := a.Platform.Store.Pool.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM projects p JOIN project_runtimes r ON r.project_id=p.id WHERE p.slug=$1 AND p.status='ready' AND r.current_deployment_id IS NOT NULL)`, slug).Scan(&ready)
+		if err != nil || !ready {
+			writeError(w, 404, "not_found", "Application not found")
+			return
+		}
+		writeJSON(w, 200, map[string]string{"url": strings.ReplaceAll(a.Platform.AppOrigin, "{slug}", slug)})
+	})
 	protected.HandleFunc("GET /v1/me", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "authentication": "development", "capabilities": map[string]bool{"provisioning": false, "ai_builds": false, "sso": false}})
+		writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "authentication": "development", "capabilities": map[string]bool{"provisioning": a.Platform != nil, "ai_builds": a.Platform != nil, "sso": false}})
 	})
 	protected.HandleFunc("GET /v1/departments", func(w http.ResponseWriter, r *http.Request) {
 		items, err := a.Store.Departments(r.Context(), currentUser(r))
@@ -89,6 +111,8 @@ func (a *API) Handler() http.Handler {
 	protected.HandleFunc("GET /v1/settings/llm-providers", a.listLLMProviders)
 	protected.HandleFunc("PUT /v1/settings/llm-providers/{provider}", a.saveLLMCredential)
 	protected.HandleFunc("DELETE /v1/settings/llm-providers/{provider}", a.deleteLLMCredential)
+	a.runtimeRoutes(protected)
+	a.fileRoutes(protected)
 	mux.Handle("/v1/", a.authenticate(protected))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -164,7 +188,7 @@ func (a *API) createProject(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	w.Header().Set("Location", "/v1/projects/"+p.Slug)
-	writeJSON(w, status, map[string]any{"project": p, "provisioning": "queued", "message": "Project reserved. Container provisioning is not connected yet."})
+	writeJSON(w, status, map[string]any{"project": p, "provisioning": "queued", "message": "Project reserved. The provisioning worker will start its container."})
 }
 
 func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {

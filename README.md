@@ -1,196 +1,154 @@
 # SG-1
 
-An internal AI application studio for a real-estate company. SG-1 uses a Next.js 16 / TypeScript frontend, a Go control-plane API, and PostgreSQL.
+An internal application builder for a real-estate company. Next.js 16 / TypeScript frontend, Go API and workers, PostgreSQL, Docker, and private S3-compatible file storage.
 
-**Status: runnable local foundation, not production-ready.** The full product plan is in [PLAN.md](PLAN.md). The repository's default branch is `master`.
+**Status: functional local development build pipeline, not a production-ready company platform.** See [PLAN.md](PLAN.md) for the complete requirements. The default branch is `master`.
 
-## What works today
+## Working locally
 
-- Local development authentication with an explicitly configured secret token.
-- Persistent users, identities, departments, roles, and projects in PostgreSQL.
-- Server-enforced project visibility and department-admin project creation.
-- Globally unique project URLs and idempotent project creation.
-- Atomic project creation, locked/password-default access settings, audit record, provisioning job, and transactional outbox event.
-- Project dashboard, search, department filtering, create dialog, and split-view builder shell.
-- Private API-key settings for OpenAI, Claude (Anthropic), GLM, and Kimi, with encrypted storage, replacement, and removal.
-- Local Docker Compose stack, versioned migrations, non-root application images, and automated tests.
+- Create a project: SG-1 immediately queues a real starter-container build, creates isolated application networks and persistent PostgreSQL resources, checks health, and opens its live preview. No prompt is required.
+- Save personal OpenAI, Claude/Anthropic, GLM, and Kimi API keys with encrypted storage, replacement, and removal.
+- Choose a provider, load its available models or enter a model ID, and submit a build request.
+- The worker sends current source, recent chat, and the request to that provider. It accepts a complete source tree, builds the Docker image, validates a candidate against a separate preview database, starts the production candidate, and publishes only after health checks pass.
+- Up to three generation/repair attempts are allowed per request. Your provider account pays for model usage. No model call is made merely by saving a key.
+- Failed builds leave the current deployment in place. Restore earlier images from deployment history without replacing the project database.
+- View applications at `/{project-name}`; build at `/build/{project-name}`. The viewer embeds a separate application origin.
+- Applications default to locked/password mode. An admin sets a visitor password or explicitly enables public access. The gateway protects all paths and WebSocket upgrades; direct app addresses do not bypass the gate.
+- Upload/download private project files, up to 10 MiB each. Local object storage is SeaweedFS using the real S3 protocol and a persistent volume. The adapter also supports AWS S3.
+- Download the current application source as a ZIP. Source snapshots, chat, jobs, deployment history, and audit records persist in PostgreSQL.
 
-## Not connected yet
+## Not implemented / production blockers
 
-Entra ID / OneLogin, AI orchestration, project-container provisioning, ECR/ECS deployment, S3 uploads, project databases, password verification for published apps, and the isolated application gateway.
+- Employee Entra ID / OneLogin SSO, individual employee sessions, and membership-management screens/APIs.
+- AWS infrastructure and CodeBuild/ECR/ECS/Fargate deployment. Local Docker is not an ECS implementation.
+- Automatic generated-source synchronization into the GitHub monorepo. The current source of truth for generated applications is versioned database snapshots; ZIP export is available. A scoped GitHub App integration is still required.
+- Production-grade untrusted-code isolation, egress controls, quotas, image policy, migration safeguards, malware scanning, high availability, and backup/recovery sign-off.
+- Automatic parsing/sending of uploaded attachments to models, application-specific named-user authorization, and application access to uploaded builder files. Uploads are deliberately not exposed just because an app is public.
 
-Creating a project currently reserves its name and **queues** a provisioning request. It does **not** start a generated application container. The interface makes this explicit. Chat is disabled rather than pretending to send requests to an AI. Viewer URLs return 404 until real application serving and access enforcement are implemented.
+Production server startup is intentionally disabled until real authentication is implemented. **Do not expose this development stack publicly or use sensitive production data in it.** The Docker socket gives the trusted local worker host-level authority. The local PostgreSQL administrator uses development credentials. This arrangement is not suitable for mutually untrusted tenants or company production workloads.
 
-Production API startup is intentionally disabled until SSO is implemented. Never expose this development stack publicly or put real sensitive company data into it.
+## Start
 
-## Start locally
-
-Requires Docker with Compose and Node.js 22+ for the setup helper. Go 1.26+ is needed only for running Go tools outside Docker.
+Requires Docker with Compose and Node.js 22+ for the setup helper.
 
 ```sh
 node scripts/setup.mjs
-docker compose up --build -d
+docker compose up --build -d --wait
 ```
 
-Open **http://localhost:3000**. Sign in with `SG1_DEV_TOKEN` from the generated root `.env` file. The setup helper creates a random token and separate encryption key, gives the file restrictive permissions, and preserves existing `.env` values. For an older setup it appends a missing encryption key; it never rotates an existing one.
+Open **http://localhost:3000**. Sign in using `SG1_DEV_TOKEN` from the root `.env` file.
 
-The local seed creates one platform administrator (`developer@localhost`) and a Property management department. This is a development identity, not employee SSO.
+The helper generates separate random development-login, encryption, and object-storage credentials, preserves existing values, and appends newly required credentials to older setups. It never silently rotates an existing encryption key. Keep `.env` private; it is excluded from Git and Docker build contexts.
 
-Use `localhost`, not `127.0.0.1`, in the browser unless you update `SG1_PUBLIC_URL`; mutation endpoints verify the exact configured origin.
+The development seed creates `developer@localhost` and a Property management department. **All local sign-ins currently share that development identity.** User-scoped credential/data authorization is implemented, but separate employee logins require the outstanding SSO work.
 
-### Local endpoints
+Use `localhost`, not `127.0.0.1`, in the browser unless `SG1_PUBLIC_URL` is adjusted. Browser mutation origins are checked exactly.
+
+### Addresses and services
 
 | Service | Address |
 | --- | --- |
-| Frontend | `http://localhost:3000` |
-| API liveness | `http://127.0.0.1:8080/healthz` |
-| API/database readiness | `http://127.0.0.1:8080/readyz` |
-| PostgreSQL | `127.0.0.1:55432`, local credentials in `.env.example` |
+| SG-1 | `http://localhost:3000` |
+| API liveness / readiness | `http://127.0.0.1:8080/healthz`, `/readyz` |
+| Application gateway | `http://{project-name}.localhost:8081` |
+| PostgreSQL | `127.0.0.1:55432` |
+| Object storage | Private Docker network only; no host port |
 
-All published host ports bind to loopback. PostgreSQL data is stored in the named Docker volume `sg1_postgres_data`, not the API container.
+Modern browsers resolve `*.localhost` to loopback. Application origins differ from SG-1 and from other projects. Protected embedded sessions use Secure, HTTP-only, partitioned cookies; production requires HTTPS and approved domains. Chrome/Chromium is the currently tested browser; validate company browsers before rollout.
+
+Compose starts migrations, development seeding, object-store initialization, the API, frontend, gateway, and provisioning/build worker. The worker alone receives the Docker socket. Generated application containers have no host ports, Docker socket, provider keys, platform credentials, or control-plane database access. They run with memory/CPU/PID limits, dropped capabilities, and read-only root filesystems.
+
+Each project receives distinct production and preview PostgreSQL databases and credentials. The databases live outside application containers. Preview validation uses the preview credentials; the live task receives production credentials at runtime. Credentials are not put in Docker build contexts, source snapshots, or AI prompts.
 
 ```sh
 docker compose ps
-docker compose logs -f api web
+docker compose logs -f api worker gateway web
+docker ps --filter label=sg1.managed=true
+```
+
+The worker reconnects trusted gateway/database containers to existing project networks after platform container replacement. Provisioning/build progress is durable and polled by the browser. A disconnected browser does not cancel a job.
+
+### Stop and persistence
+
+```sh
 docker compose down
 ```
 
-`docker compose down` preserves database data. Do not delete the volume unless you deliberately intend to discard local records.
+This preserves the PostgreSQL and object-storage volumes. **Generated project containers/networks are independently managed and are not removed by Compose down.** They have no published host ports. Use their exact `sg1-app-...` container names if stopping individual local projects; do not run broad Docker prune/delete commands. Full project archival/deletion and automatic retention cleanup are not implemented yet.
 
-## Personal AI-provider credentials
+Do not delete `sg1_postgres_data` or `sg1_object_data` unless you intend to discard those local records/files. Keep the encryption key backed up separately: losing it makes saved provider/project credentials unreadable.
 
-Open **AI providers** in the sidebar or visit `http://localhost:3000/settings/providers`.
+## Use the builder
 
-- Save one personal API key per provider: OpenAI, Claude (Anthropic), GLM, and Kimi.
-- API keys are not the same as ChatGPT/Claude chat subscriptions or account passwords.
-- Keys are AES-256-GCM encrypted before SQL receives them. Encryption authenticates the owner and provider, preventing ciphertext from being reused for another user/provider.
-- Only saved/not-configured status and timestamps are returned. Saved keys cannot be revealed; replace or remove them instead.
-- Removing a key from SG-1 does not revoke it at the provider. Revoke it in the provider's console if it must stop working everywhere.
-- Neither project membership nor platform-admin status grants an API for reading someone else's keys.
-- Keys are not currently verified or used for model calls. Saving one does not make a provider request.
-- This prototype still has one shared development identity. Use restricted test keys, not production credentials, until employee SSO and production security are implemented.
+1. Open **AI providers** and save an API key. A chat subscription/account password is not an API key.
+2. Create a project. Wait for **Container running** and the starter preview.
+3. Choose a provider, click **Load models**, and select a compatible model. A provider may reject unavailable/deprecated models or account-specific endpoints; a model ID can be entered manually.
+4. Describe a tool and click **Build application**. Source/chat/build-failure context is sent to that provider. Do not include secrets or sensitive production information.
+5. Watch generation, Docker build, startup validation, and deployment progress. On failure, the old app remains active and the error appears in chat.
+6. Under **Sharing & passwords**, set a visitor password or explicitly confirm public access. Public means no visitor authentication; this local stack is still loopback-only.
+7. Use **Deployment history** to restore an earlier image, **Download source** for a ZIP, and **Private project files** for uploads/downloads.
 
-`SG1_CREDENTIALS_KEY` is a **separate**, base64-encoded 32-byte master encryption key, generated by `node scripts/setup.mjs`. It is injected into the backend only, never the frontend container. Back it up securely and separately from database backups. Losing or replacing it makes existing saved credentials unreadable; the helper never silently rotates it. Production must inject it through the approved secrets-management system; versioned key rotation/re-encryption is not implemented yet.
+Generated stacks must implement the runtime contract: listen on `0.0.0.0:8080`, provide `/healthz`, define Docker HEALTHCHECK, run non-root, tolerate a read-only filesystem with writable `/tmp`, and use `DATABASE_URL` for persistent business data. Dependencies must be installed during build. Runtime networks have no external internet access. Additional services/integrations need explicit platform support.
 
-For an existing local setup, run `node scripts/setup.mjs`, then `docker compose up --build -d` to apply migrations and recreate the backend with the new configuration. If encryption is unconfigured, saving/listing keys fails closed rather than storing plaintext. Authenticated deletion is still allowed.
+Schema changes in generated applications are not a substitute for a reviewed migration system. Image rollback does not undo data/schema changes. Do not entrust production records to this prototype.
 
-## Run outside Docker
+## Provider and object-storage credentials
 
-Start the database first:
+API keys are AES-256-GCM encrypted before SQL receives them. Associated data binds each encrypted credential to its user and provider. Status endpoints return no key, suffix, or ciphertext. Secrets are not injected into generated application containers. Removing a key from SG-1 does not revoke it at the provider.
 
-```sh
-docker compose up -d postgres
-```
+`SG1_CREDENTIALS_KEY` is a base64-encoded 32-byte master key, injected into trusted backend services only. Production must use approved secrets injection and a reviewed rotation/recovery process. Rotating/re-encrypting existing records is not implemented.
 
-Export root `.env` variables in each terminal before running the API or frontend. These are local-only secrets; never commit the file.
+The local S3 store uses a separately generated `SG1_S3_SECRET`. Buckets are private; downloads require project authorization and are served as attachments. Startup validates actual object upload/read/delete, not just bucket metadata. The development store uses bounded, small data volumes; adjust its capacity or use AWS S3 for larger workloads. Files are never executed or automatically included in model context. Malware scanning and production file-retention policy remain outstanding.
 
-```sh
-set -a
-. ./.env
-set +a
-```
+The Go S3 adapter can target AWS using `SG1_S3_BUCKET`, `AWS_REGION`, and the standard AWS SDK credential chain when `SG1_S3_ENDPOINT` is unset. In AWS, use a narrowly scoped workload role and a pre-provisioned private/encrypted bucket. Do not run the development bucket initializer against production. Endpoint/access-key overrides are for the local S3-compatible service.
+
+## Tests
 
 Backend, from `sg-1/backend`:
 
 ```sh
-go run ./cmd/sg1 migrate
-go run ./cmd/sg1 seed-dev
-go run ./cmd/sg1 serve
-```
-
-Frontend, from `sg-1/frontend` in a separate terminal with the same exported environment:
-
-```sh
-npm ci
-npm run dev
-```
-
-Do not run host services on ports already occupied by Compose's `api` and `web` services.
-
-## Checks
-
-From `sg-1/backend`:
-
-```sh
 go test -race ./...
 go vet ./...
-```
-
-PostgreSQL integration tests require a local test connection. They create and drop only uniquely named test schemas; they do not truncate application tables. The supplied connection must permit schema creation.
-
-```sh
 SG1_TEST_DATABASE_URL='postgres://sg1:sg1_local_only@127.0.0.1:55432/sg1?sslmode=disable' go test -race -count=1 ./...
 ```
 
-From `sg-1/frontend`:
+SQL tests use uniquely named test schemas. The Docker integration test additionally creates its own random project databases, roles, network, and containers, then cleans only those exact test resources:
+
+```sh
+node --env-file=.env scripts/test-runtime.mjs
+```
+
+Run that helper from the repository root. It inherits local configuration without printing secrets, authenticates independent HTTP probes, and discovers the Docker socket using `docker context inspect`. The worker in Compose uses the explicitly mounted `/var/run/docker.sock`.
+
+The real Docker test covers starter provisioning, generated-image build/deploy, failed-build isolation, image rollback, database persistence, and denial of control-plane database access. Provider protocol tests use synthetic HTTP responses; automated tests do not use your paid provider keys. Real model availability/output quality must be tested separately with an approved key and model.
+
+Frontend, from `sg-1/frontend`:
 
 ```sh
 npm ci
 npm run typecheck
 npm run lint
+npm run format:check
 npm test
 npm run build
-```
-
-From the root:
-
-```sh
-docker compose build
-```
-
-Unit tests run without Docker. Without `SG1_TEST_DATABASE_URL`, Go integration tests explicitly skip instead of substituting an in-memory database.
-
-Browser smoke tests require the running Compose stack. From `sg-1/frontend`:
-
-```sh
 npx playwright install chromium
 npm run test:e2e
 ```
 
-The browser-test command loads the root `.env` without printing secrets. Tests cover authentication, rejected cross-origin writes, project creation, persistence across page reload, logout, and fail-closed viewer URLs. They create visibly named `Browser test ...` projects in the local database. Browser traces are disabled to avoid recording the development token.
+Browser tests require the running stack, load root `.env` without printing secrets, and create visibly named `Browser test ...` projects. They exercise real container startup, authenticated preview, protected/public viewing, private upload/download, source ZIP export, and credential management. Existing provider credentials are skipped, never overwritten. Synthetic keys created by tests are removed. Browser traces are disabled.
 
-## API surface
-
-All `/v1/*` endpoints currently require `Authorization: Bearer <SG1_DEV_TOKEN>`. Development auth is allowed only with `SG1_ENV=development` and a token of at least 32 characters.
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| GET | `/healthz` | Process liveness |
-| GET | `/readyz` | Database connectivity |
-| GET | `/v1/me` | Current user and explicitly unavailable capabilities |
-| GET | `/v1/departments` | Authorized departments |
-| GET | `/v1/projects` | Authorized project list |
-| GET | `/v1/projects/{slug}` | Authorized project details |
-| POST | `/v1/projects` | Reserve a project and queue provisioning |
-| GET | `/v1/settings/llm-providers` | Supported providers and the current user's credential status, never keys |
-| PUT | `/v1/settings/llm-providers/{provider}` | Save/replace the current user's encrypted API key |
-| DELETE | `/v1/settings/llm-providers/{provider}` | Remove the current user's API key |
-
-Credential provider IDs are `openai`, `anthropic` (displayed as Claude), `glm`, and `kimi`. PUT accepts only `{"api_key":"..."}`; the owner is never accepted from the request. These endpoints return no key material. Browser smoke tests use synthetic keys, skip already-configured providers, and remove only credentials they created.
-
-Project creation accepts `department_id`, `name`, `slug`, and `description`. Supply a unique `Idempotency-Key` containing 16–128 letters, numbers, hyphens, or underscores. Retrying the same payload and key returns the original project; reusing the key with different details returns 409. Unknown JSON fields, reserved URLs, oversized bodies, and unauthorized departments are rejected.
-
-Browser mutations go through narrowly scoped Next.js endpoints. The backend URL and auth token are server-side only; cross-origin mutations are rejected and responses containing internal records are not cached.
+CI runs SQL tests, frontend checks, image builds, the real Docker pipeline test, and browser tests. No AWS resources or paid model calls are needed.
 
 ## Repository layout
 
 ```text
-sg-1/frontend/       Next.js application
-sg-1/backend/        Go API, domain rules, SQL migrations, tests
-scripts/            Local setup helpers
-.github/workflows/  Continuous integration
-compose.yaml        Development stack only
-PLAN.md             Product and implementation plan
+sg-1/frontend/             Next.js UI and browser tests
+sg-1/backend/cmd/sg1/      API / worker / gateway / migration commands
+sg-1/backend/internal/    Domain, store, encryption, runtime, S3, and tests
+scripts/                  Local setup helper
+.github/workflows/        CI
+compose.yaml              Development infrastructure only
+PLAN.md                   Complete product plan and remaining production work
 ```
 
-Generated `projects/`, shared templates, and AWS infrastructure will be added when their actual implementations are introduced, rather than represented by empty scaffolding.
-
-## Next implementation slice
-
-1. Confirm AWS region, app domain, identity-provider configuration, and AI provider.
-2. Implement employee SSO and real membership administration before production access.
-3. Connect the provisioning queue to isolated project resources and a real placeholder container.
-4. Implement the isolated app gateway, password enforcement, and employee-only previews.
-5. Add scoped AI execution, Docker validation, deployment, and rollback.
-
-See the acceptance gates and unresolved decisions in [PLAN.md](PLAN.md) before provisioning AWS resources or sending company information to an AI provider.
+Generated source currently lives in deployment snapshots, not a checked-out `projects/` directory. Do not confuse the completed local execution pipeline with the outstanding GitHub monorepo synchronization or AWS production infrastructure.

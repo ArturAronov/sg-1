@@ -6,6 +6,7 @@ import (
 )
 
 func TestConfigurationFailsClosed(t *testing.T) {
+	t.Setenv("SG1_RUNTIME", "")
 	t.Setenv("SG1_CREDENTIALS_KEY", "")
 	t.Setenv("SG1_DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("SG1_ENV", "")
@@ -33,6 +34,7 @@ func TestConfigurationFailsClosed(t *testing.T) {
 }
 
 func TestInvalidCredentialEncryptionKey(t *testing.T) {
+	t.Setenv("SG1_RUNTIME", "")
 	t.Setenv("SG1_ENV", "production")
 	t.Setenv("SG1_DEV_TOKEN", "")
 	t.Setenv("SG1_DATABASE_URL", "postgres://localhost/test")

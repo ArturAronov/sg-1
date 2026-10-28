@@ -17,10 +17,10 @@ type Store struct{ Pool *pgxpool.Pool }
 
 func (s *Store) Ping(ctx context.Context) error {
 	var applied int
-	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql')`).Scan(&applied); err != nil {
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql','0003_runtime.sql','0004_project_files.sql')`).Scan(&applied); err != nil {
 		return err
 	}
-	if applied != 2 {
+	if applied != 4 {
 		return errors.New("control-plane migrations have not been applied")
 	}
 	return nil

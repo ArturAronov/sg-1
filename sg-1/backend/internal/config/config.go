@@ -13,10 +13,25 @@ type Config struct {
 	ListenAddr     string
 	DevToken       string
 	CredentialsKey string
+	Runtime        string
+	AppOrigin      string
+	PublicURL      string
 }
 
 func Load() (Config, error) {
 	c := Config{Environment: os.Getenv("SG1_ENV"), DatabaseURL: os.Getenv("SG1_DATABASE_URL"), ListenAddr: os.Getenv("SG1_LISTEN_ADDR"), DevToken: os.Getenv("SG1_DEV_TOKEN"), CredentialsKey: os.Getenv("SG1_CREDENTIALS_KEY")}
+	c.Runtime = os.Getenv("SG1_RUNTIME")
+	c.AppOrigin = os.Getenv("SG1_APP_ORIGIN")
+	c.PublicURL = os.Getenv("SG1_PUBLIC_URL")
+	if c.AppOrigin == "" {
+		c.AppOrigin = "http://{slug}.localhost:8081"
+	}
+	if c.PublicURL == "" {
+		c.PublicURL = "http://localhost:3000"
+	}
+	if c.Runtime != "" && (c.Runtime != "docker" || c.Environment != "development") {
+		return c, errors.New("the Docker runtime is development-only")
+	}
 	if c.Environment == "" {
 		c.Environment = "production"
 	}
