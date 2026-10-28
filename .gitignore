@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+sg-1/backend/bin/
+/sg-1/backend/sg1
+playwright-report/
+test-results/

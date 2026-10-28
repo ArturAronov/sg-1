@@ -1,0 +1,35 @@
+{
+  "name": "@sg-1/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format:check": "prettier --check src tests e2e next.config.ts playwright.config.ts eslint.config.mjs package.json tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "node --env-file-if-exists=../../.env node_modules/@playwright/test/cli.js test"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "prettier": "^3.9.10",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

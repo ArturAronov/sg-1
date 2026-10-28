@@ -1,8 +1,26 @@
 # SG-1 — Product and Implementation Plan
 
-Status: planning baseline; implementation has not started.
+Status: local foundation implemented; production integrations and AWS provisioning are not implemented yet.
 
 This document records the agreed requirements, recommended architecture, implementation sequence, and decisions still needed. Items marked **proposed** are recommendations, not requirements already approved by stakeholders.
+
+### Implementation progress
+
+- [x] Next.js 16 / TypeScript dashboard and split-view builder shell.
+- [x] Go API, PostgreSQL connection handling, migrations, and development seed command.
+- [x] Persistent control-plane identities, departments, roles, projects, locked access defaults, audit events, and provisioning outbox.
+- [x] Authorized project listing/details and transactional, idempotent project creation with globally unique slugs.
+- [x] Explicitly development-only authentication; production access fails closed until SSO is implemented.
+- [x] Local Docker Compose stack and non-root application images.
+- [x] Unit/integration tests and CI definitions; browser smoke-test coverage.
+- [ ] Entra ID / OneLogin and membership-management UI/API.
+- [ ] AWS infrastructure and isolated project provisioning; no generated project containers run yet.
+- [ ] Isolated application gateway, password enforcement, and public serving.
+- [ ] S3 uploads and persistent per-project databases.
+- [ ] AI orchestration, validated builds, deployment, and rollback.
+- [ ] Production hardening, recovery rehearsal, and pilot approval.
+
+The current create-project flow reserves metadata and immediately queues provisioning. It does not yet satisfy the final requirement to start a project container; the UI explicitly reports this missing integration. See README.md for runnable local setup and current limitations.
 
 ## 1. Product goal
 
@@ -166,7 +184,7 @@ Each workspace starts from a known source revision, has a bounded lifetime, and 
     └── workflows/
 ```
 
-This layout is proposed; no application directories are created by this plan.
+This is the target layout. SG-1's frontend/backend and CI directories are implemented; generated-project, shared-template, and AWS-infrastructure directories will be added with their real implementations.
 
 ### 5.1 Per-project contents
 
