@@ -115,6 +115,24 @@ func (a *API) runtimeRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, 202, map[string]string{"build_id": id})
 	}))
+	mux.HandleFunc("POST /v1/projects/{slug}/cancel", wrap(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			BuildID string `json:"build_id"`
+		}
+		if !decodeRuntimeBody(w, r, &in) {
+			return
+		}
+		if len(in.BuildID) != 36 {
+			writeError(w, 400, "invalid_build", "Choose a valid build to cancel")
+			return
+		}
+		status, err := a.Platform.CancelBuild(r.Context(), currentUser(r), r.PathValue("slug"), in.BuildID)
+		if err != nil {
+			a.runtimeError(w, r, err)
+			return
+		}
+		writeJSON(w, 202, map[string]string{"status": status})
+	}))
 	mux.HandleFunc("POST /v1/projects/{slug}/preview", wrap(func(w http.ResponseWriter, r *http.Request) {
 		url, err := a.Platform.PreviewURL(r.Context(), currentUser(r), r.PathValue("slug"))
 		if err != nil {
@@ -210,6 +228,10 @@ func (a *API) runtimeRoutes(mux *http.ServeMux) {
 }
 
 func (a *API) runtimeError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, platform.ErrBuildFinished) {
+		writeError(w, 409, "build_finished", err.Error())
+		return
+	}
 	if errors.Is(err, platform.ErrBusy) || errors.Is(err, platform.ErrNotReady) {
 		writeError(w, 409, "project_busy", err.Error())
 		return

@@ -20,6 +20,7 @@ This document records the agreed requirements, recommended architecture, impleme
 - [x] Private S3-protocol file uploads/downloads using persistent local SeaweedFS storage and an AWS S3 adapter.
 - [x] OpenAI Responses, Anthropic Messages, GLM/Kimi compatible provider clients, model selection, bounded build/repair attempts, health-validated deployment, history, and image rollback.
 - [x] Real Docker integration tests for successful/failed builds, rollback, persistent records, and control-plane database isolation. Provider responses are synthetic in tests, not paid live calls.
+- [x] Authorized, durable cancellation for queued/running builds and restores, worker interruption, candidate cleanup, and a publication lock preventing accepted cancellations from deploying. Database tests cover cancellation/publication races and abandoned cancellation recovery.
 - [ ] AWS infrastructure, CodeBuild/ECR/ECS/Fargate deployment, and production S3 setup.
 - [ ] Generated source synchronized into GitHub `projects/{department}/{project}`; current source lives in versioned database snapshots with ZIP export.
 - [ ] Reviewed database migration safeguards, production untrusted-code isolation, resource quotas, malware scanning, and retention/archival workflows.

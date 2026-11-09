@@ -9,9 +9,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -163,6 +165,77 @@ func TestDockerBuildDeployRollbackAndPersistence(t *testing.T) {
 		t.Fatal("generated app not deployed", err)
 	}
 	working := *state.CurrentDeploymentID
+	for _, stage := range []string{"generation", "validation"} {
+		t.Run("cancel during "+stage, func(t *testing.T) {
+			buildCtx, stop := context.WithTimeout(ctx, 45*time.Second)
+			defer stop()
+			entered := make(chan struct{}, 1)
+			originalHTTP, originalGateway := service.Provider.HTTP, service.GatewayURL
+			defer func() {
+				service.Provider.HTTP, service.GatewayURL = originalHTTP, originalGateway
+			}()
+			var calls atomic.Int32
+			if stage == "generation" {
+				service.Provider.HTTP = &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+					calls.Add(1)
+					entered <- struct{}{}
+					<-r.Context().Done()
+					return nil, r.Context().Err()
+				})}
+			} else {
+				// Hold the candidate's independent HTTP check open while cancelling.
+				gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					select {
+					case entered <- struct{}{}:
+					default:
+					}
+					<-r.Context().Done()
+				}))
+				defer gateway.Close()
+				service.GatewayURL = gateway.URL
+			}
+			job, err := service.QueueBuild(buildCtx, user, p.Slug, "openai", "fixture-model", "Cancel this change", "cancel-runtime-"+stage, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{})
+			var buildErr error
+			go func() {
+				_, buildErr = service.buildOne(buildCtx)
+				close(done)
+			}()
+			defer func() { stop(); <-done }()
+			select {
+			case <-entered:
+			case <-done:
+				t.Fatal("build stopped before reaching cancellation point", buildErr)
+			case <-buildCtx.Done():
+				t.Fatal("build did not reach cancellation point")
+			}
+			if status, err := service.CancelBuild(buildCtx, user, p.Slug, job); err != nil || status != "cancelling" {
+				t.Fatal("could not request cancellation", status, err)
+			}
+			select {
+			case <-done:
+			case <-buildCtx.Done():
+				t.Fatal("build did not stop")
+			}
+			if buildErr != nil {
+				t.Fatal("cancelled build was reported as failed", buildErr)
+			}
+			state, err := service.State(ctx, user, p.Slug)
+			if err != nil || state.Builds[0].Status != "cancelled" || *state.CurrentDeploymentID != working {
+				t.Fatal("cancelled build changed the live app", state, err)
+			}
+			if stage == "generation" && calls.Load() != 1 {
+				t.Fatal("cancelled generation triggered paid repair attempts", calls.Load())
+			}
+			containers, err := service.Docker.command(ctx, nil, nil, "ps", "-a", "--filter", "name=sg1-app-"+p.ID, "--format", "{{.Names}}")
+			if err != nil || len(strings.Fields(containers)) != len(state.Deployments) {
+				t.Fatal("cancelled build left an unrecorded candidate container", containers, err)
+			}
+		})
+	}
 	bad = true
 	if _, err = service.QueueBuild(ctx, user, p.Slug, "openai", "fixture-model", "Invalid image", "broken-build-request", ""); err != nil {
 		t.Fatal(err)

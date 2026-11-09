@@ -47,6 +47,7 @@ export function LiveBuilder({
   const [model, setModel] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [preview, setPreview] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -59,7 +60,7 @@ export function LiveBuilder({
   const end = useRef<HTMLDivElement>(null);
   const slug = state.project.slug;
   const base = `/api/projects/${slug}`;
-  const active = state.builds.find((b) => !["succeeded", "failed"].includes(b.status));
+  const active = state.builds.find((b) => !["succeeded", "failed", "cancelled"].includes(b.status));
   const writable = state.project.role !== "read";
   const ready = state.project.status === "ready";
 
@@ -145,6 +146,23 @@ export function LiveBuilder({
       setError(e instanceof Error ? e.message : "Could not submit build");
     } finally {
       setSending(false);
+    }
+  }
+  async function cancelBuild() {
+    if (
+      !active ||
+      !window.confirm("Stop this build? Provider usage already incurred may still be charged.")
+    )
+      return;
+    setCancelling(true);
+    setError("");
+    try {
+      await call(`${base}/cancel`, "POST", { build_id: active.id });
+      setState(await call(`${base}/runtime`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel build");
+    } finally {
+      setCancelling(false);
     }
   }
   async function loadModels() {
@@ -270,6 +288,16 @@ export function LiveBuilder({
                 <strong>{active.status}</strong>
                 {active.message}
               </span>
+              {writable && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={cancelBuild}
+                  disabled={cancelling || active.status === "cancelling"}
+                >
+                  {cancelling || active.status === "cancelling" ? "Stopping…" : "Cancel build"}
+                </button>
+              )}
             </div>
           )}
           <form className="live-composer" onSubmit={send}>

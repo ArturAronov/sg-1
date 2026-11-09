@@ -12,6 +12,7 @@ An internal application builder for a real-estate company. Next.js 16 / TypeScri
 - The worker sends current source, recent chat, and the request to that provider. It accepts a complete source tree, builds the Docker image, validates a candidate against a separate preview database, starts the production candidate, and publishes only after health checks pass.
 - Up to three generation/repair attempts are allowed per request. Your provider account pays for model usage. No model call is made merely by saving a key.
 - Failed builds leave the current deployment in place. Restore earlier images from deployment history without replacing the project database.
+- Cancel queued or running builds and restores from the builder. Cancellation prevents publication, interrupts in-flight work, and keeps the build slot occupied until worker cleanup finishes. Provider usage already incurred may still be charged.
 - View applications at `/{project-name}`; build at `/build/{project-name}`. The viewer embeds a separate application origin.
 - Applications default to locked/password mode. An admin sets a visitor password or explicitly enables public access. The gateway protects all paths and WebSocket upgrades; direct app addresses do not bypass the gate.
 - Upload/download private project files, up to 10 MiB each. Local object storage is SeaweedFS using the real S3 protocol and a persistent volume. The adapter also supports AWS S3.
@@ -85,6 +86,7 @@ Do not delete `sg1_postgres_data` or `sg1_object_data` unless you intend to disc
 3. Choose a provider, click **Load models**, and select a compatible model. A provider may reject unavailable/deprecated models or account-specific endpoints; a model ID can be entered manually.
 4. Describe a tool and click **Build application**. Source/chat/build-failure context is sent to that provider. Do not include secrets or sensitive production information.
 5. Watch generation, Docker build, startup validation, and deployment progress. On failure, the old app remains active and the error appears in chat.
+   Use **Cancel build** to stop an unwanted build or restore. **Stopping…** means the worker is still cancelling work and cleaning up candidates; another build becomes available afterward. If publication already completed, cancellation reports that the build has finished instead of claiming to undo it. A stopped worker's pending cancellation is recovered after its lease expires (up to 15 minutes).
 6. Under **Sharing & passwords**, set a visitor password or explicitly confirm public access. Public means no visitor authentication; this local stack is still loopback-only.
 7. Use **Deployment history** to restore an earlier image, **Download source** for a ZIP, and **Private project files** for uploads/downloads.
 

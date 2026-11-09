@@ -15,6 +15,7 @@ async function proxy(request: Request, context: Context) {
     runtime: "GET",
     source: "GET",
     builds: "POST",
+    cancel: "POST",
     preview: "POST",
     access: "PUT",
     rollback: "POST",
@@ -22,7 +23,7 @@ async function proxy(request: Request, context: Context) {
   };
   if (methods[action] !== request.method) return new Response(null, { status: 405 });
   let body: string | undefined;
-  if (["builds", "access", "rollback"].includes(action)) {
+  if (["builds", "cancel", "access", "rollback"].includes(action)) {
     if (request.headers.get("content-type")?.split(";")[0] !== "application/json")
       return new Response(null, { status: 415 });
     try {

@@ -13,10 +13,45 @@ import (
 	"testing"
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/platform"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 )
 
 const testToken = "test-token-at-least-thirty-two-characters"
+
+func TestCancelBuildRequestValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, token, contentType string
+		status                         int
+	}{
+		{"anonymous", `{"build_id":"00000000-0000-4000-8000-000000000001"}`, "", "application/json", 401},
+		{"bad type", `{}`, testToken, "text/plain", 415},
+		{"missing build", `{}`, testToken, "application/json", 400},
+		{"invalid build", `{"build_id":"bad-id"}`, testToken, "application/json", 400},
+		{"unknown field", `{"build_id":"00000000-0000-4000-8000-000000000001","project_id":"other"}`, testToken, "application/json", 400},
+		{"multiple objects", `{} {}`, testToken, "application/json", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := testAPI(&fakeRepository{})
+			a.Platform = &platform.Service{}
+			r := httptest.NewRequest(http.MethodPost, "/v1/projects/private/cancel", strings.NewReader(tc.body))
+			if tc.token != "" {
+				r.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			r.Header.Set("Content-Type", tc.contentType)
+			w := httptest.NewRecorder()
+			a.Handler().ServeHTTP(w, r)
+			if w.Code != tc.status {
+				t.Fatalf("got %d want %d: %s", w.Code, tc.status, w.Body.String())
+			}
+		})
+	}
+	w := httptest.NewRecorder()
+	testAPI(&fakeRepository{}).runtimeError(w, httptest.NewRequest(http.MethodPost, "/", nil), platform.ErrBuildFinished)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "build_finished") {
+		t.Fatal("finished build must report a conflict, not accepted cancellation", w.Code)
+	}
+}
 
 type fakeRepository struct {
 	createCalls          int

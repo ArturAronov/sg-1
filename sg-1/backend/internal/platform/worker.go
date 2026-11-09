@@ -133,14 +133,14 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 	name := containerName(projectID, id)
 	// Validate with a separate preview database. The active application and its
 	// production database stay untouched while a candidate is checked.
-	if err := s.Docker.Start(ctx, image, name, network, db.Preview); err != nil {
-		return err
-	}
 	defer func() {
 		cleanup, c := context.WithTimeout(context.Background(), 10*time.Second)
 		defer c()
 		s.Docker.Remove(cleanup, name)
 	}()
+	if err := s.Docker.Start(ctx, image, name, network, db.Preview); err != nil {
+		return err
+	}
 	if err := s.Docker.Healthy(ctx, name); err != nil {
 		return err
 	}
@@ -149,9 +149,6 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 	}
 	s.Docker.Remove(ctx, name)
 	production := name + "-live"
-	if err := s.Docker.Start(ctx, image, production, network, db.Production); err != nil {
-		return err
-	}
 	published := false
 	defer func() {
 		if !published {
@@ -160,6 +157,9 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 			s.Docker.Remove(cleanup, production)
 		}
 	}()
+	if err := s.Docker.Start(ctx, image, production, network, db.Production); err != nil {
+		return err
+	}
 	if err := s.Docker.Healthy(ctx, production); err != nil {
 		s.Docker.Remove(ctx, production)
 		return err
@@ -177,6 +177,11 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 	}
 	defer tx.Rollback(ctx)
 	if jobID != "" {
+		// Serialize the publication decision with cancellation. The row lock is
+		// held until the new deployment and succeeded status commit together.
+		if err = lockBuildForDeployment(ctx, tx, jobID); err != nil {
+			return err
+		}
 		var allowed bool
 		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM build_jobs b JOIN users u ON u.id=b.actor_id JOIN projects p ON p.id=b.project_id WHERE b.id=$1 AND u.active AND (u.platform_admin OR EXISTS(SELECT 1 FROM department_memberships dm WHERE dm.department_id=p.department_id AND dm.user_id=u.id AND dm.role='admin') OR EXISTS(SELECT 1 FROM project_memberships pm WHERE pm.project_id=p.id AND pm.user_id=u.id AND pm.role IN('write','admin'))))`, jobID).Scan(&allowed)
 		if err != nil {
@@ -225,8 +230,15 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 	return nil
 }
 
-func (s *Service) progress(ctx context.Context, id, status, message string) {
-	_, _ = s.Store.Pool.Exec(ctx, `UPDATE build_jobs SET status=$2,message=$3,updated_at=now() WHERE id=$1`, id, status, message)
+func (s *Service) progress(ctx context.Context, id, status, message string) error {
+	result, err := s.Store.Pool.Exec(ctx, `UPDATE build_jobs SET status=$2,message=$3,updated_at=now() WHERE id=$1 AND status NOT IN ('cancelling','cancelled','succeeded','failed')`, id, status, message)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return errBuildCancelled
+	}
+	return nil
 }
 
 func (s *Service) buildOne(parent context.Context) (bool, error) {
@@ -234,7 +246,12 @@ func (s *Service) buildOne(parent context.Context) (bool, error) {
 	defer cancel()
 	// A crashed/timed-out attempt is failed, not silently retried with new model
 	// charges. The user can explicitly retry it from chat.
-	_, _ = s.Store.Pool.Exec(ctx, `UPDATE build_jobs SET status='failed',message='Worker stopped before completion. The previous application is unchanged; retry explicitly.',updated_at=now() WHERE status NOT IN ('queued','succeeded','failed') AND lease_until<now()`)
+	_, _ = s.Store.Pool.Exec(ctx, `WITH recovered AS (
+	 UPDATE build_jobs SET status=CASE WHEN status='cancelling' THEN 'cancelled' ELSE 'failed' END,
+	 message=CASE WHEN status='cancelling' THEN 'Build cancelled after the worker stopped. The previous deployment is unchanged.' ELSE 'Worker stopped before completion. The previous application is unchanged; retry explicitly.' END,
+	 updated_at=now(),lease_until=NULL WHERE status NOT IN ('queued','succeeded','failed','cancelled') AND lease_until<now()
+	 RETURNING project_id,message
+	) INSERT INTO project_messages(project_id,role,content) SELECT project_id,'system',message FROM recovered`)
 	var id, projectID, userID, provider, model, prompt, kind string
 	var target *string
 	err := s.Store.Pool.QueryRow(ctx, `UPDATE build_jobs SET status='generating',message='Preparing application source',lease_until=now()+interval '15 minutes',updated_at=now()
@@ -246,18 +263,14 @@ func (s *Service) buildOne(parent context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	monitorCtx, stopMonitoring := context.WithCancel(ctx)
+	done := s.monitorBuild(monitorCtx, id, cancel)
 	err = s.executeBuild(ctx, id, projectID, userID, provider, model, prompt, kind, target)
-	if err != nil {
-		finish, c := context.WithTimeout(context.Background(), 10*time.Second)
-		defer c()
-		message := err.Error()
-		if len(message) > 1000 {
-			message = message[:1000]
-		}
-		s.progress(finish, id, "failed", message)
-		_, _ = s.Store.Pool.Exec(finish, `INSERT INTO project_messages(project_id,role,content) VALUES($1,'system',$2)`, projectID, "Build failed; the previous deployment is unchanged. "+message)
-	}
-	return true, err
+	stopMonitoring()
+	<-done
+	finish, c := context.WithTimeout(context.Background(), 10*time.Second)
+	defer c()
+	return true, s.finishBuild(finish, id, projectID, err)
 }
 
 func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provider, model, prompt, kind string, target *string) error {
@@ -294,7 +307,9 @@ func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provi
 		if json.Unmarshal(raw, &files) != nil {
 			return errors.New("invalid deployment source")
 		}
-		s.progress(ctx, id, "validating", "Validating rollback image")
+		if err = s.progress(ctx, id, "validating", "Validating rollback image"); err != nil {
+			return err
+		}
 		return s.deploy(ctx, projectID, image, "Restored a previous application version. Database records were preserved.", files, network, db, id)
 	}
 	key, err := s.providerKey(ctx, userID, provider)
@@ -318,16 +333,29 @@ func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provi
 	}
 	repair := ""
 	for attempt := 1; attempt <= 3; attempt++ {
-		s.progress(ctx, id, "generating", "Generating application source (attempt "+string(rune('0'+attempt))+" of 3)")
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err = s.progress(ctx, id, "generating", "Generating application source (attempt "+string(rune('0'+attempt))+" of 3)"); err != nil {
+			return err
+		}
 		generated, err := s.Provider.Generate(ctx, provider, model, key, prompt, files, history, repair)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			repair = err.Error()
 			continue
 		}
 		image = "sg1-project:" + id + "-" + string(rune('0'+attempt))
 		summary = generated.Summary
-		s.progress(ctx, id, "building", "Building the Docker image")
+		if err = s.progress(ctx, id, "building", "Building the Docker image"); err != nil {
+			return err
+		}
 		output, err := s.Docker.Build(ctx, image, generated.Files)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			repair = strings.ReplaceAll(output, key, "[redacted]")
 			if len(repair) > 12000 {
@@ -335,8 +363,13 @@ func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provi
 			}
 			continue
 		}
-		s.progress(ctx, id, "validating", "Checking candidate startup before deployment")
+		if err = s.progress(ctx, id, "validating", "Checking candidate startup before deployment"); err != nil {
+			return err
+		}
 		if err = s.deploy(ctx, projectID, image, summary, generated.Files, network, db, id); err != nil {
+			if errors.Is(err, errBuildCancelled) || ctx.Err() != nil {
+				return err
+			}
 			repair = err.Error()
 			continue
 		}
