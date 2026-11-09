@@ -13,11 +13,29 @@ import (
 	"testing"
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/identity"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/platform"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 )
 
 const testToken = "test-token-at-least-thirty-two-characters"
+
+func TestProductionDoesNotTrustDevTokensOrUnsignedIdentity(t *testing.T) {
+	a := testAPI(&fakeRepository{})
+	a.Development = false
+	a.Identity = &identity.Authenticator{Verifier: &identity.Verifier{}}
+	for _, token := range []string{"", testToken, "forged.jwt.token"} {
+		r := httptest.NewRequest("GET", "/v1/me", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("x-amzn-oidc-identity", "administrator")
+		r.Header.Set("email", "admin@example.com")
+		w := httptest.NewRecorder()
+		a.Handler().ServeHTTP(w, r)
+		if w.Code != 401 {
+			t.Fatal("production accepted an unverified identity", w.Code)
+		}
+	}
+}
 
 func TestCancelBuildRequestValidation(t *testing.T) {
 	for _, tc := range []struct {

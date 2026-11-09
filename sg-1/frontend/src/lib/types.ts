@@ -16,7 +16,7 @@ export type Project = {
 };
 export type Me = {
   user: User;
-  authentication: "development";
+  authentication: "development" | "sso";
   capabilities: { provisioning: boolean; ai_builds: boolean; sso: boolean };
 };
 

@@ -104,6 +104,16 @@ func (s *Service) monitorBuild(ctx context.Context, id string, cancel context.Ca
 }
 
 func (s *Service) finishBuild(ctx context.Context, id, projectID string, buildErr error) error {
+	if s.Cloud != nil {
+		var pending bool
+		if err := s.Store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM aws_workloads WHERE project_id=$1 AND cleanup_requested) OR EXISTS(SELECT 1 FROM aws_builds WHERE project_id=$1 AND cancel_requested)`, projectID).Scan(&pending); err != nil {
+			return err
+		}
+		if pending {
+			_, err := s.Store.Pool.Exec(ctx, `UPDATE build_jobs SET message='Cloud cleanup pending; the previous deployment is unchanged.',lease_until=now()+interval '5 minutes',updated_at=now() WHERE id=$1 AND status NOT IN ('succeeded','failed','cancelled')`, id)
+			return err
+		}
+	}
 	tx, err := s.Store.Pool.Begin(ctx)
 	if err != nil {
 		return err

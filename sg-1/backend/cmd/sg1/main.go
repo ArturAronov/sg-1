@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/config"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/httpapi"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/identity"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/platform"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/storage"
@@ -43,9 +45,8 @@ func run(logger *slog.Logger) error {
 		logger.Error("invalid configuration", "reason", err.Error())
 		return err
 	}
-	if (command == "serve" || command == "worker" || command == "gateway") && c.Environment != "development" {
-		logger.Error("production server is disabled until SSO is implemented")
-		return errors.New("SSO unavailable")
+	if (command == "serve" || command == "worker" || command == "gateway") && c.Environment != "development" && c.Runtime != "aws" {
+		return errors.New("production requires the authenticated AWS runtime")
 	}
 	if command == "seed-dev" && c.Environment != "development" {
 		logger.Error("seed-dev is forbidden outside development")
@@ -101,6 +102,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	s := &store.Store{Pool: pool}
+	if c.Environment == "production" {
+		s.ProjectLimit = 30
+	}
 	switch command {
 	case "migrate":
 		if err := store.Migrate(startup, pool); err != nil {
@@ -115,7 +119,14 @@ func run(logger *slog.Logger) error {
 		logger.Info("local development user and department ready")
 		return nil
 	}
-	api := &httpapi.API{Store: s, Logger: logger, Development: true, DevToken: c.DevToken, DevUserID: store.DevUserID}
+	api := &httpapi.API{Store: s, Logger: logger, Development: c.Environment == "development", DevToken: c.DevToken, DevUserID: store.DevUserID}
+	if !api.Development {
+		bootstrap := map[string]bool{}
+		for _, subject := range c.BootstrapSubjects {
+			bootstrap[subject] = true
+		}
+		api.Identity = &identity.Authenticator{Store: s, Verifier: &identity.Verifier{Region: c.Region, SignerARN: c.ALBARN, Issuer: c.CognitoIssuer, ClientID: c.CognitoClient}, BootstrapSubjects: bootstrap}
+	}
 	api.Files = objects
 	if c.CredentialsKey != "" {
 		api.Vault, err = secrets.NewVault(c.CredentialsKey)
@@ -125,15 +136,39 @@ func run(logger *slog.Logger) error {
 	} else {
 		logger.Warn("secure LLM credential storage disabled; configure SG1_CREDENTIALS_KEY")
 	}
-	if c.Runtime == "docker" && api.Vault != nil {
+	if (c.Runtime == "docker" || c.Runtime == "aws") && api.Vault != nil {
 		signing := sha256.Sum256([]byte("sg1-gateway/v1:" + c.CredentialsKey))
 		api.Platform = &platform.Service{Store: s, Vault: api.Vault, AppOrigin: c.AppOrigin, DatabaseHost: "sg1-postgres-1", SigningKey: signing[:], Provider: &platform.ProviderClient{}, GatewayURL: "http://gateway:8081"}
+		if c.Runtime == "aws" {
+			api.Platform.Cloud, err = platform.NewAWSRuntime(ctx, s, objects)
+			if err != nil {
+				return err
+			}
+			api.Platform.DatabaseTLS = true
+			u, e := url.Parse(c.ProjectDatabaseURL)
+			if e != nil {
+				return e
+			}
+			api.Platform.DatabaseHost = u.Hostname()
+			if command == "worker" {
+				api.Platform.ProjectPool, err = pgxpool.New(ctx, c.ProjectDatabaseURL)
+				if err != nil {
+					return err
+				}
+				defer api.Platform.ProjectPool.Close()
+				if err = api.Platform.ProjectPool.Ping(startup); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if command == "worker" {
 		if api.Platform == nil {
 			return errors.New("runtime is not configured")
 		}
-		api.Platform.Docker = &platform.Docker{NetworkPrefix: "sg1-project-", GatewayContainer: "sg1-gateway-1", PostgresContainer: "sg1-postgres-1"}
+		if c.Runtime == "docker" {
+			api.Platform.Docker = &platform.Docker{NetworkPrefix: "sg1-project-", GatewayContainer: "sg1-gateway-1", PostgresContainer: "sg1-postgres-1"}
+		}
 		return api.Platform.RunWorker(ctx, logger)
 	}
 	server := &http.Server{Addr: c.ListenAddr, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
@@ -152,7 +187,11 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	logger.Warn("development authentication enabled; do not expose this service publicly", "listen", c.ListenAddr)
+	if api.Development {
+		logger.Warn("development authentication enabled; do not expose this service publicly", "listen", c.ListenAddr)
+	} else {
+		logger.Info("AWS employee authentication enabled", "listen", c.ListenAddr)
+	}
 	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

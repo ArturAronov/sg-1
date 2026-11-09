@@ -6,14 +6,15 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
+    "dev": "next dev --hostname 127.0.0.1 --port 42069",
     "build": "next build",
-    "start": "next start --hostname 127.0.0.1",
+    "start": "next start --hostname 127.0.0.1 --port 42069",
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
-    "format:check": "prettier --check src tests e2e next.config.ts playwright.config.ts eslint.config.mjs package.json tsconfig.json",
+    "format:check": "prettier --check src tests e2e next.config.ts playwright.config.ts playwright.theme.config.ts eslint.config.mjs package.json tsconfig.json",
     "test": "tsx --test tests/*.test.ts",
-    "test:e2e": "node --env-file-if-exists=../../.env node_modules/@playwright/test/cli.js test"
+    "test:e2e": "node --env-file-if-exists=../../.env node_modules/@playwright/test/cli.js test",
+    "test:theme": "playwright test --config playwright.theme.config.ts"
   },
   "dependencies": {
     "next": "16.4.3",

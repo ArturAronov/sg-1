@@ -84,6 +84,42 @@ func queueCancellationTest(t *testing.T, s *Service, u domain.User, p domain.Pro
 	return id
 }
 
+func TestCloudCleanupKeepsBuildSlotUntilResourcesAreGone(t *testing.T) {
+	s, u, p, deployment := cancellationFixture(t)
+	s.Cloud = localRuntime{} // Only the cloud cleanup SQL gate is exercised; no AWS calls.
+	ctx := context.Background()
+	id := queueCancellationTest(t, s, u, p, deployment)
+	if _, err := s.Store.Pool.Exec(ctx, `UPDATE build_jobs SET status='validating' WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CancelBuild(ctx, u, p.Slug, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.Pool.Exec(ctx, `INSERT INTO aws_workloads(name,project_id,cleanup_requested) VALUES('pending-candidate',$1,true)`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.finishBuild(ctx, id, p.ID, context.Canceled); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := s.Store.Pool.QueryRow(ctx, `SELECT status FROM build_jobs WHERE id=$1`, id).Scan(&status); err != nil || status != "cancelling" {
+		t.Fatal("cloud cleanup freed the slot too early", status, err)
+	}
+	if _, err := s.QueueBuild(ctx, u, p.Slug, "", "", "Another restore", randomHex(), deployment); !errors.Is(err, ErrBusy) {
+		t.Fatal("pending cleanup allowed a second build", err)
+	}
+	if _, err := s.Store.Pool.Exec(ctx, `DELETE FROM aws_workloads WHERE project_id=$1`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.finishBuild(ctx, id, p.ID, context.Canceled); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.State(ctx, u, p.Slug)
+	if err != nil || state.Builds[0].Status != "cancelled" || *state.CurrentDeploymentID != deployment {
+		t.Fatal("cleanup completion changed the live deployment", err)
+	}
+}
+
 func TestQueuedBuildCancellationAuthorizationAndIdempotency(t *testing.T) {
 	s, u, p, deployment := cancellationFixture(t)
 	ctx := context.Background()

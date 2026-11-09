@@ -1,6 +1,6 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 export const SESSION_COOKIE = "sg1_development_session";
@@ -17,6 +17,12 @@ export function validDevToken(token: string): boolean {
 }
 
 export async function sessionToken(): Promise<string | null> {
+  if (process.env.SG1_ENV === "production") {
+    // The Go API verifies the ES256 signature, signer ALB, issuer, client, and expiry.
+    // Never trust x-amzn-oidc-identity or an unsigned email header as authentication.
+    const token = (await headers()).get("x-amzn-oidc-data");
+    return token && token.length <= 24576 ? token : null;
+  }
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   return token && validDevToken(token) ? token : null;
 }

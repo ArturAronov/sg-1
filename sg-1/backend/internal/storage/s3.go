@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -13,9 +14,14 @@ import (
 )
 
 type S3 struct {
-	client *s3.Client
-	bucket string
+	client       *s3.Client
+	bucket       string
+	scanRequired bool
 }
+
+var ErrScanPending = errors.New("file is awaiting a clean malware scan")
+
+func (s *S3) Scanning() bool { return s.scanRequired }
 
 func New(ctx context.Context, bucket, endpoint, region, accessKey, secret string) (*S3, error) {
 	options := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(region)}
@@ -32,7 +38,7 @@ func New(ctx context.Context, bucket, endpoint, region, accessKey, secret string
 			o.UsePathStyle = true
 		}
 	})
-	return &S3{client: client, bucket: bucket}, nil
+	return &S3{client: client, bucket: bucket, scanRequired: endpoint == ""}, nil
 }
 
 func (s *S3) Initialize(ctx context.Context) error {
@@ -66,13 +72,39 @@ func (s *S3) Put(ctx context.Context, key string, data []byte) error {
 	return err
 }
 func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	if s.scanRequired && strings.HasPrefix(key, "uploads/") {
+		tags, err := s.client.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{Bucket: &s.bucket, Key: &key})
+		if err != nil {
+			return nil, err
+		}
+		clean := false
+		for _, tag := range tags.TagSet {
+			if aws.ToString(tag.Key) == "GuardDutyMalwareScanStatus" && aws.ToString(tag.Value) == "NO_THREATS_FOUND" {
+				clean = true
+			}
+		}
+		if !clean {
+			return nil, ErrScanPending
+		}
+	}
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.bucket, Key: &key})
 	if err != nil {
 		return nil, err
 	}
 	return result.Body, nil
 }
+func (s *S3) UploadKey(projectID, fileID string) string {
+	prefix := ""
+	if s.scanRequired {
+		prefix = "uploads/"
+	}
+	return prefix + projectID + "/attachments/" + fileID
+}
 func (s *S3) Delete(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key})
+	return err
+}
+func (s *S3) Ping(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &s.bucket})
 	return err
 }

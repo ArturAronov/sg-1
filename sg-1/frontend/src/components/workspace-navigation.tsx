@@ -11,6 +11,7 @@ export function WorkspaceNavigation() {
       <Link
         className={`nav-link ${!settings ? "active" : ""}`}
         href="/"
+        aria-label="Projects"
         aria-current={!settings ? "page" : undefined}
       >
         <Icon name="grid" />
@@ -19,6 +20,7 @@ export function WorkspaceNavigation() {
       <Link
         className={`nav-link ${settings ? "active" : ""}`}
         href="/settings/providers"
+        aria-label="AI providers"
         aria-current={settings ? "page" : undefined}
       >
         <Icon name="key" />

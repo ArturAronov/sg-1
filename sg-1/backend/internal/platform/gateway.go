@@ -133,6 +133,14 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if r.URL.Path == "/__sg1_health" {
+			if err := s.Store.Ping(r.Context()); err != nil {
+				http.Error(w, "Unavailable", 503)
+				return
+			}
+			w.WriteHeader(200)
+			return
+		}
 		if r.URL.Path == "/__sg1_probe" {
 			raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			t, err := s.verify(raw)
@@ -141,7 +149,15 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 				return
 			}
 			client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			request, err := http.NewRequestWithContext(r.Context(), "GET", "http://"+t.Target+":8080/healthz", nil)
+			host := t.Target + ":8080"
+			if s.Cloud != nil {
+				host, err = s.Cloud.Resolve(r.Context(), t.Project, t.Target)
+				if err != nil {
+					http.Error(w, "Unknown candidate", 404)
+					return
+				}
+			}
+			request, err := http.NewRequestWithContext(r.Context(), "GET", "http://"+host+"/healthz", nil)
 			if err != nil {
 				http.Error(w, "Invalid probe", 400)
 				return
@@ -236,11 +252,22 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 			}
 			return
 		}
-		target := &url.URL{Scheme: "http", Host: app.Container + ":8080"}
+		host := app.Container + ":8080"
+		if s.Cloud != nil {
+			host, err = s.Cloud.Resolve(r.Context(), app.ID, app.Container)
+			if err != nil {
+				http.Error(w, "Application temporarily unavailable", 503)
+				return
+			}
+		}
+		target := &url.URL{Scheme: "http", Host: host}
 		proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			pr.SetXForwarded()
 			pr.Out.Header.Del("Authorization")
+			pr.Out.Header.Del("X-Amzn-Oidc-Data")
+			pr.Out.Header.Del("X-Amzn-Oidc-Identity")
+			pr.Out.Header.Del("X-Amzn-Oidc-Accesstoken")
 			pr.Out.Header.Del("Cookie")
 			for _, cookie := range pr.In.Cookies() {
 				if cookie.Name != appCookie && !strings.HasPrefix(cookie.Name, "sg1_") {
@@ -271,7 +298,11 @@ func (s *Service) probe(ctx context.Context, projectID, container string) error 
 	if s.GatewayURL == "" {
 		return errors.New("trusted HTTP health probe is not configured")
 	}
-	for range 5 {
+	attempts := 5
+	if s.Cloud != nil {
+		attempts = 30
+	}
+	for range attempts {
 		t := s.sign(ticket{Project: projectID, Target: container, Kind: "probe", Expires: time.Now().Add(time.Minute).Unix()})
 		r, err := http.NewRequestWithContext(ctx, "POST", s.GatewayURL+"/__sg1_probe", nil)
 		if err != nil {

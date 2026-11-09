@@ -11,19 +11,10 @@ export function Shell({ user, children }: { user: User; children: React.ReactNod
         <Brand />
         <div className="workspace-label">YOUR WORKSPACE</div>
         <WorkspaceNavigation />
-        <div className="sidebar-note">
-          <span className="tiny-label">FROM IDEA TO INTERNAL TOOL</span>
-          <p>
-            Less busywork.
-            <br />
-            More possibility.
-          </p>
-          <span className="orbit">✳</span>
-        </div>
         <div className="sidebar-bottom">
           <div className="local-indicator">
             <span />
-            Local development
+            {process.env.SG1_ENV === "production" ? "Production workspace" : "Local development"}
           </div>
           <div className="user-row">
             <span className="avatar">{user.name.charAt(0).toUpperCase()}</span>
@@ -40,6 +31,9 @@ export function Shell({ user, children }: { user: User; children: React.ReactNod
         </div>
       </aside>
       <div className="main-column">
+        <a className="skip-link" href="#workspace-content">
+          Skip to content
+        </a>
         <header className="topbar">
           <WorkspaceBreadcrumb />
           <Link
@@ -51,10 +45,12 @@ export function Shell({ user, children }: { user: User; children: React.ReactNod
           </Link>
           <span className="environment-badge">
             <span />
-            FOUNDATION BUILD
+            {process.env.SG1_ENV === "production" ? "PRODUCTION" : "LOCAL DEVELOPMENT"}
           </span>
         </header>
-        {children}
+        <div id="workspace-content" tabIndex={-1}>
+          {children}
+        </div>
       </div>
     </div>
   );

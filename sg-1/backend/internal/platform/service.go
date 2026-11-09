@@ -25,6 +25,10 @@ func (s *Service) State(ctx context.Context, u domain.User, slug string) (State,
 		return State{}, err
 	}
 	state := State{Project: p, Messages: []Message{}, Builds: []Build{}, Deployments: []Deployment{}}
+	state.Runtime = "docker"
+	if s.Cloud != nil {
+		state.Runtime = "aws"
+	}
 	rows, err := s.Store.Pool.Query(ctx, `SELECT id::text,role,content,created_at FROM (SELECT * FROM project_messages WHERE project_id=$1 ORDER BY created_at DESC LIMIT 60) m ORDER BY created_at`, p.ID)
 	if err != nil {
 		return state, err
@@ -222,13 +226,21 @@ func randomHex() string {
 }
 
 func (s *Service) databases(ctx context.Context, projectID string) (databases, error) {
+	adminPool := s.Store.Pool
+	if s.ProjectPool != nil {
+		adminPool = s.ProjectPool
+	}
 	var encrypted []byte
 	err := s.Store.Pool.QueryRow(ctx, `SELECT database_url_ciphertext FROM project_runtimes WHERE project_id=$1`, projectID).Scan(&encrypted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		base := strings.ReplaceAll(projectID, "-", "")
 		makeURL := func(prefix string) string {
 			role := "sg1_" + prefix + base
-			return (&url.URL{Scheme: "postgres", User: url.UserPassword(role, randomHex()), Host: s.DatabaseHost + ":5432", Path: "/" + role, RawQuery: "sslmode=disable"}).String()
+			query := "sslmode=disable"
+			if s.DatabaseTLS {
+				query = "sslmode=verify-full&sslrootcert=/etc/ssl/certs/sg1-rds-ca.pem"
+			}
+			return (&url.URL{Scheme: "postgres", User: url.UserPassword(role, randomHex()), Host: s.DatabaseHost + ":5432", Path: "/" + role, RawQuery: query}).String()
 		}
 		db := databases{Production: makeURL("p"), Preview: makeURL("q")}
 		raw, _ := json.Marshal(db)
@@ -261,29 +273,35 @@ func (s *Service) databases(ctx context.Context, projectID string) (databases, e
 		password, _ := u.User.Password()
 		identifier := pgx.Identifier{role}.Sanitize()
 		var exists bool
-		if err = s.Store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)`, role).Scan(&exists); err != nil {
+		if err = adminPool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)`, role).Scan(&exists); err != nil {
 			return db, err
 		}
 		// Role/password are generated locally, not model- or user-supplied SQL.
 		if !exists {
-			if _, err = s.Store.Pool.Exec(ctx, "CREATE ROLE "+identifier+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '"+password+"'"); err != nil {
+			limits := ""
+			if s.DatabaseTLS {
+				limits = " CONNECTION LIMIT 10"
+			}
+			if _, err = adminPool.Exec(ctx, "CREATE ROLE "+identifier+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION"+limits+" PASSWORD '"+password+"'"); err != nil {
 				return db, err
 			}
 		}
-		if err = s.Store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)`, role).Scan(&exists); err != nil {
+		if err = adminPool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)`, role).Scan(&exists); err != nil {
 			return db, err
 		}
 		if !exists {
-			if _, err = s.Store.Pool.Exec(ctx, "CREATE DATABASE "+identifier+" OWNER "+identifier); err != nil {
+			if _, err = adminPool.Exec(ctx, "CREATE DATABASE "+identifier+" OWNER "+identifier); err != nil {
 				return db, err
 			}
 		}
-		if _, err = s.Store.Pool.Exec(ctx, "REVOKE ALL ON DATABASE "+identifier+" FROM PUBLIC"); err != nil {
+		if _, err = adminPool.Exec(ctx, "REVOKE ALL ON DATABASE "+identifier+" FROM PUBLIC"); err != nil {
 			return db, err
 		}
 	}
-	if _, err = s.Store.Pool.Exec(ctx, `REVOKE CONNECT ON DATABASE sg1 FROM PUBLIC`); err != nil {
-		return db, fmt.Errorf("could not isolate control-plane database")
+	if s.ProjectPool == nil {
+		if _, err = s.Store.Pool.Exec(ctx, `REVOKE CONNECT ON DATABASE sg1 FROM PUBLIC`); err != nil {
+			return db, fmt.Errorf("could not isolate control-plane database")
+		}
 	}
 	return db, nil
 }

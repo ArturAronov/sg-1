@@ -8,6 +8,7 @@ import { useHydrated } from "@/lib/hydration";
 import type { LLMSettings, Project } from "@/lib/types";
 
 export type RuntimeState = {
+  runtime?: "docker" | "aws";
   project: Project;
   messages: { id: string; role: string; content: string; created_at: string }[];
   builds: { id: string; status: string; message: string; provider: string; model: string }[];
@@ -501,9 +502,9 @@ export function LiveBuilder({
         ))}
       </details>
       <p className="runtime-note">
-        Local Docker development runtime. AWS hosting, employee SSO, and GitHub source
-        synchronization remain unfinished. PostgreSQL data persists independently of application
-        containers.
+        {state.runtime === "aws"
+          ? "AWS runtime. Builds run in CodeBuild, immutable images are stored in ECR, and applications run in private Fargate services. PostgreSQL data is stored separately in RDS."
+          : "Local Docker development runtime. PostgreSQL data persists independently of application containers. Production AWS hosting and SSO require separate deployment configuration."}
       </p>
     </main>
   );

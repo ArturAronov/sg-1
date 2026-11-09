@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"errors"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/storage"
 	"io"
 	"net/http"
 	"net/url"
@@ -51,7 +53,7 @@ func (a *API) fileRoutes(mux *http.ServeMux) {
 			a.fail(w, r, err)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"files": files})
+		writeJSON(w, 200, map[string]any{"files": files, "scan_required": a.Files.Scanning()})
 	}))
 	mux.HandleFunc("POST /v1/projects/{slug}/files", wrap(func(w http.ResponseWriter, r *http.Request) {
 		p, err := a.Store.Project(r.Context(), currentUser(r), r.PathValue("slug"))
@@ -92,7 +94,7 @@ func (a *API) fileRoutes(mux *http.ServeMux) {
 			a.fail(w, r, err)
 			return
 		}
-		key := p.ID + "/attachments/" + file.ID
+		key := a.Files.UploadKey(p.ID, file.ID)
 		if err = a.Files.Put(r.Context(), key, data); err != nil {
 			a.fail(w, r, err)
 			return
@@ -132,6 +134,10 @@ func (a *API) fileRoutes(mux *http.ServeMux) {
 			return
 		}
 		data, err := a.Files.Get(r.Context(), key)
+		if errors.Is(err, storage.ErrScanPending) {
+			writeError(w, 409, "scan_pending", "The file is not cleared for download. Wait for the malware scan or contact an administrator.")
+			return
+		}
 		if err != nil {
 			a.fail(w, r, err)
 			return

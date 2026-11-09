@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
+	"github.com/ArturAronov/sg-1/sg-1/backend/internal/identity"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/platform"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/storage"
@@ -34,13 +35,14 @@ type Repository interface {
 type API struct {
 	Store  Repository
 	Logger *slog.Logger
-	// Development auth is opt-in; production authentication is not implemented yet.
+	// Development auth is opt-in. Production requires verified ALB/Cognito identity.
 	Development bool
 	DevToken    string
 	DevUserID   string
 	Vault       *secrets.Vault
 	Platform    *platform.Service
 	Files       *storage.S3
+	Identity    *identity.Authenticator
 }
 
 type userContextKey struct{}
@@ -53,11 +55,17 @@ func (a *API) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if err := a.Store.Ping(ctx); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "not_ready", "Database or migrations are unavailable")
 			return
+		}
+		if a.Files != nil {
+			if err := a.Files.Ping(ctx); err != nil {
+				writeError(w, 503, "not_ready", "Private file storage is unavailable")
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
@@ -81,7 +89,11 @@ func (a *API) Handler() http.Handler {
 		writeJSON(w, 200, map[string]string{"url": strings.ReplaceAll(a.Platform.AppOrigin, "{slug}", slug)})
 	})
 	protected.HandleFunc("GET /v1/me", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "authentication": "development", "capabilities": map[string]bool{"provisioning": a.Platform != nil, "ai_builds": a.Platform != nil, "sso": false}})
+		mode := "sso"
+		if a.Development {
+			mode = "development"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "authentication": mode, "capabilities": map[string]bool{"provisioning": a.Platform != nil, "ai_builds": a.Platform != nil, "sso": a.Identity != nil}})
 	})
 	protected.HandleFunc("GET /v1/departments", func(w http.ResponseWriter, r *http.Request) {
 		items, err := a.Store.Departments(r.Context(), currentUser(r))
@@ -125,6 +137,20 @@ func (a *API) Handler() http.Handler {
 
 func (a *API) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !a.Development && a.Identity != nil {
+			token, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !found {
+				writeError(w, 401, "unauthenticated", "Employee sign-in is required")
+				return
+			}
+			u, err := a.Identity.Authenticate(r.Context(), token)
+			if err != nil {
+				writeError(w, 401, "unauthenticated", "Employee session is unavailable")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey{}, u)))
+			return
+		}
 		if !a.Development || len(a.DevToken) < 32 {
 			writeError(w, http.StatusServiceUnavailable, "authentication_unconfigured", "SSO is not configured")
 			return
@@ -197,6 +223,8 @@ func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "Project not found")
 	case errors.Is(err, domain.ErrForbidden):
 		writeError(w, http.StatusForbidden, "forbidden", "You do not have permission for this action")
+	case errors.Is(err, domain.ErrQuota):
+		writeError(w, http.StatusTooManyRequests, "project_quota", "The workspace project limit has been reached. Contact an administrator.")
 	case errors.Is(err, domain.ErrSlugTaken):
 		writeError(w, http.StatusConflict, "slug_taken", "That project URL is already in use")
 	case errors.Is(err, domain.ErrIdempotencyConflict):

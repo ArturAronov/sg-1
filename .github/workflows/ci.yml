@@ -38,6 +38,7 @@ jobs:
           cache-dependency-path: sg-1/backend/go.sum
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: go test -race -count=1 ./...
       - run: go build ./cmd/sg1
 
@@ -54,6 +55,7 @@ jobs:
           cache: npm
           cache-dependency-path: sg-1/frontend/package-lock.json
       - run: npm ci
+      - run: npm audit --omit=dev
       - run: npm run lint
       - run: npm run format:check
       - run: npm test

@@ -10,9 +10,11 @@ import type { Department, Project } from "@/lib/types";
 export function ProjectDashboard({
   projects,
   departments,
+  production = false,
 }: {
   projects: Project[];
   departments: Department[];
+  production?: boolean;
 }) {
   const router = useRouter();
   useEffect(() => {
@@ -23,6 +25,15 @@ export function ProjectDashboard({
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("");
   const [creating, setCreating] = useState(false);
+  const createTrigger = useRef<HTMLButtonElement | null>(null);
+  function openCreate(event: React.MouseEvent<HTMLButtonElement>) {
+    createTrigger.current = event.currentTarget;
+    setCreating(true);
+  }
+  function closeCreate() {
+    setCreating(false);
+    createTrigger.current?.focus();
+  }
   const allowed = departments.filter((d) => d.role === "admin");
   const visible = projects.filter(
     (p) =>
@@ -33,157 +44,165 @@ export function ProjectDashboard({
 
   return (
     <main className="dashboard">
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">
-            <span className="small-line" />
-            YOUR IDEAS, MADE USEFUL
+      <section className="overview" aria-labelledby="overview-title">
+        <div className="page-heading">
+          <div>
+            <div className="eyebrow">
+              <span className="small-line" />
+              YOUR IDEAS, MADE USEFUL
+            </div>
+            <h1 id="overview-title">
+              Tools built around
+              <br />
+              <span>the way you work.</span>
+            </h1>
+            <p>Create a home for your next idea. Build it together, one conversation at a time.</p>
           </div>
-          <h1>
-            Tools built around
-            <br />
-            <span>the way you work.</span>
-          </h1>
-          <p>Create a home for your next idea. Build it together, one conversation at a time.</p>
+          <button className="button primary" onClick={openCreate} disabled={!allowed.length}>
+            <Icon name="plus" size={16} />
+            New project
+          </button>
         </div>
-        <button
-          className="button primary"
-          onClick={() => setCreating(true)}
-          disabled={!allowed.length}
-        >
-          <Icon name="plus" />
-          New project
-        </button>
-      </div>
-      <div className="stats-row">
-        <div>
-          <span className="stat-icon">
-            <Icon name="layers" />
-          </span>
-          <span>
-            <strong>{projects.length}</strong>
-            <small>Total projects</small>
-          </span>
-        </div>
-        <div>
-          <span className="stat-icon green">
-            <Icon name="grid" />
-          </span>
-          <span>
-            <strong>{ready}</strong>
-            <small>Ready to use</small>
-          </span>
-        </div>
-        <div>
-          <span className="stat-icon amber">
-            <Icon name="clock" />
-          </span>
-          <span>
-            <strong>{projects.filter((p) => p.status === "provisioning").length}</strong>
-            <small>Awaiting provisioning</small>
-          </span>
-        </div>
-        <div className="stats-caption">
-          <Icon name="shield" size={16} />
-          <span>
-            New projects are
-            <br />
-            <strong>protected by default.</strong>
-          </span>
-        </div>
-      </div>
-      <div className="section-heading">
-        <div>
-          <h2>
-            Your projects <span>{projects.length.toString().padStart(2, "0")}</span>
-          </h2>
-          <p>A little less friction for every team.</p>
-        </div>
-        <div className="filters">
-          <label className="search-field">
-            <Icon name="search" size={16} />
-            <input
-              aria-label="Search projects"
-              placeholder="Search projects…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          <select
-            aria-label="Filter department"
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="">All departments</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      {visible.length ? (
-        <div className="project-grid">
-          {visible.map((project, index) => (
-            <Link key={project.id} href={`/build/${project.slug}`} className="project-card">
-              <div className="card-top">
-                <span className={`project-icon color-${index % 3}`}>
-                  <Icon name="code" size={22} />
-                </span>
-                <span
-                  className={`status-badge ${project.status === "ready" ? "ready" : project.status === "failed" ? "failed" : "pending"}`}
-                >
-                  <span />
-                  {statusLabel(project.status)}
-                </span>
-              </div>
-              <span className="department-label">{project.department_name}</span>
-              <h3>{project.name}</h3>
-              <p>{project.description || "Your next useful tool starts here."}</p>
-              <div className="card-bottom">
-                <span>
-                  <Icon name="lock" size={13} />
-                  {project.access_mode === "password" ? "Password protected" : "Public"}
-                </span>
-                <span className="card-arrow">
-                  <Icon name="arrow" size={17} />
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">
-          <div className="empty-illustration">
-            <span />
-            <span />
-            <Icon name="spark" size={30} />
+      </section>
+      {projects.length > 0 && (
+        <div className="stats-row">
+          <div>
+            <span className="stat-icon">
+              <Icon name="layers" />
+            </span>
+            <span>
+              <strong>{projects.length}</strong>
+              <small>Total projects</small>
+            </span>
           </div>
-          <span className="tiny-label">A CLEAN SLATE. A LOT OF POTENTIAL.</span>
-          <h3>{projects.length ? "No projects match your search." : "What could work better?"}</h3>
-          <p>
-            {projects.length
-              ? "Try another name or department."
-              : "The spreadsheet that takes too long. The process with too many steps. Give your next tool a place to start."}
-          </p>
-          {!projects.length && (
-            <button
-              className="button primary"
-              onClick={() => setCreating(true)}
-              disabled={!allowed.length}
-            >
-              Create your first project
-              <Icon name="arrow" size={16} />
-            </button>
-          )}
+          <div>
+            <span className="stat-icon green">
+              <Icon name="grid" />
+            </span>
+            <span>
+              <strong>{ready}</strong>
+              <small>Ready to use</small>
+            </span>
+          </div>
+          <div>
+            <span className="stat-icon amber">
+              <Icon name="clock" />
+            </span>
+            <span>
+              <strong>{projects.filter((p) => p.status === "provisioning").length}</strong>
+              <small>Awaiting provisioning</small>
+            </span>
+          </div>
+          <div className="stats-caption">
+            <Icon name="shield" size={16} />
+            <span>
+              New projects are
+              <br />
+              <strong>protected by default.</strong>
+            </span>
+          </div>
         </div>
       )}
+      <section className="project-directory" aria-labelledby="projects-title">
+        <div className="section-heading">
+          <div>
+            <h2 id="projects-title">
+              Your projects <span className="count-badge">{projects.length}</span>
+            </h2>
+            <p>A little less friction for every team.</p>
+          </div>
+          <div className="filters">
+            <label className="search-field">
+              <Icon name="search" size={16} />
+              <input
+                aria-label="Search projects"
+                placeholder="Search projects…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+            <select
+              aria-label="Filter department"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+            >
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {visible.length ? (
+          <div className="project-grid">
+            {visible.map((project, index) => (
+              <Link key={project.id} href={`/build/${project.slug}`} className="project-card">
+                <div className="card-top">
+                  <span className={`project-icon color-${index % 3}`}>
+                    <Icon name="code" size={22} />
+                  </span>
+                  <span
+                    className={`status-badge ${project.status === "ready" ? "ready" : project.status === "failed" ? "failed" : "pending"}`}
+                  >
+                    <span />
+                    {statusLabel(project.status)}
+                  </span>
+                </div>
+                <span className="department-label">{project.department_name}</span>
+                <h3>{project.name}</h3>
+                <p>{project.description || "Your next useful tool starts here."}</p>
+                <div className="card-bottom">
+                  <span>
+                    <Icon name="lock" size={13} />
+                    {project.access_mode === "password" ? "Password protected" : "Public"}
+                  </span>
+                  <span className="card-arrow">
+                    <Icon name="arrow" size={17} />
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <div className="empty-illustration">
+              <Icon name="layers" size={28} />
+            </div>
+            <span className="tiny-label">A CLEAN SLATE. A LOT OF POTENTIAL.</span>
+            <h3>
+              {projects.length ? "No projects match your search." : "What could work better?"}
+            </h3>
+            <p>
+              {projects.length
+                ? "Try another name or department."
+                : "The spreadsheet that takes too long. The process with too many steps. Give your next tool a place to start."}
+            </p>
+            {!projects.length && (
+              <button className="button primary" onClick={openCreate} disabled={!allowed.length}>
+                Create your first project
+                <Icon name="arrow" size={16} />
+              </button>
+            )}
+          </div>
+        )}
+      </section>
       <div className="foundation-note">
         <Icon name="code" size={18} />
         <p>
-          <strong>Local Docker workspace.</strong> Projects start real containers. Add your API key
-          and choose a model to build. AWS deployment and employee SSO still need production setup.
+          {production ? (
+            <>
+              <strong>Isolated AWS workspace.</strong> Applications run on private Fargate services.
+              Builds use CodeBuild and ECR; uploaded files stay private in S3.
+            </>
+          ) : (
+            <>
+              <strong>Local Docker workspace.</strong> Projects start real containers. Add your API
+              key and choose a model to build. Production AWS hosting and employee SSO require
+              separate deployment configuration.
+            </>
+          )}
         </p>
       </div>
       <footer className="page-footer">
@@ -192,7 +211,7 @@ export function ProjectDashboard({
           SG-1 <span className="footer-star">✳</span> Internal studio
         </span>
       </footer>
-      {creating && <CreateProject departments={allowed} close={() => setCreating(false)} />}
+      {creating && <CreateProject departments={allowed} close={closeCreate} />}
     </main>
   );
 }
@@ -216,6 +235,14 @@ function CreateProject({ departments, close }: { departments: Department[]; clos
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const request = useRef<{ payload: string; key: string } | null>(null);
+
+  useEffect(() => {
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = overflow;
+    };
+  }, []);
 
   async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

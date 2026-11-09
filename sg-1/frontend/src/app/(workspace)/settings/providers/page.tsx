@@ -24,5 +24,5 @@ export default async function ProvidersPage() {
       );
     throw error;
   }
-  return <ProviderSettings settings={settings} />;
+  return <ProviderSettings settings={settings} production={process.env.SG1_ENV === "production"} />;
 }

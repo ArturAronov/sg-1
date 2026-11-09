@@ -63,6 +63,34 @@ func integrationStore(t *testing.T) *Store {
 	return s
 }
 
+func TestProjectQuotaPreservesIdempotency(t *testing.T) {
+	s := integrationStore(t)
+	s.ProjectLimit = 1
+	ctx := context.Background()
+	u, err := s.User(ctx, DevUserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := domain.CreateProject{DepartmentID: "00000000-0000-4000-8000-000000000002", Name: "Quota test", Slug: "quota-test"}
+	first, created, err := s.CreateProject(ctx, u, in, "quota-first-request")
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+	retry, created, err := s.CreateProject(ctx, u, in, "quota-first-request")
+	if err != nil || created || retry.ID != first.ID {
+		t.Fatal("quota broke safe retries", err)
+	}
+	in.Name = "Second project"
+	in.Slug = "second-project"
+	if _, _, err = s.CreateProject(ctx, u, in, "quota-second-request"); !errors.Is(err, domain.ErrQuota) {
+		t.Fatal("workspace quota was bypassed", err)
+	}
+	var count int
+	if err = s.Pool.QueryRow(ctx, `SELECT count(*) FROM projects`).Scan(&count); err != nil || count != 1 {
+		t.Fatal("unexpected project records", err)
+	}
+}
+
 func TestIntegrationProjectCreation(t *testing.T) {
 	s := integrationStore(t)
 	ctx := context.Background()

@@ -5,7 +5,13 @@ import { Icon } from "@/components/icon";
 import { useHydrated } from "@/lib/hydration";
 import type { LLMCredentialStatus, LLMProvider, LLMSettings } from "@/lib/types";
 
-export function ProviderSettings({ settings }: { settings: LLMSettings }) {
+export function ProviderSettings({
+  settings,
+  production = false,
+}: {
+  settings: LLMSettings;
+  production?: boolean;
+}) {
   return (
     <main className="dashboard provider-settings">
       <div className="page-heading">
@@ -57,8 +63,10 @@ export function ProviderSettings({ settings }: { settings: LLMSettings }) {
         <Icon name="code" size={18} />
         <p>
           <strong>Your account pays for model usage.</strong> Saving a key makes no provider call.
-          Load models and submit builds from a project to use it. Local sign-ins share one
-          development account; use restricted test keys until employee SSO is connected.
+          Load models and submit builds from a project to use it.{" "}
+          {production
+            ? "Keys are scoped to your employee account."
+            : "Local sign-ins share one development account; use restricted test keys in development."}
         </p>
       </div>
     </main>
@@ -163,7 +171,8 @@ function ProviderCard({
               setMessage("");
             }}
             placeholder={status.configured ? "Enter a replacement key" : "Paste your API key"}
-            aria-describedby={`key-help-${provider.id}`}
+            aria-invalid={!!error}
+            aria-describedby={`key-help-${provider.id}${error ? ` key-error-${provider.id}` : ""}`}
           />
           <small className="input-help" id={`key-help-${provider.id}`}>
             Use an API key, not your account password or chat subscription.
@@ -238,7 +247,7 @@ function ProviderCard({
         </div>
       )}
       {error && (
-        <p className="form-error" role="alert">
+        <p className="form-error" role="alert" id={`key-error-${provider.id}`}>
           {error}
         </p>
       )}

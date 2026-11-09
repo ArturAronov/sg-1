@@ -6,12 +6,16 @@ import (
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/domain"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/store"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
 	Store        *store.Store
 	Vault        *secrets.Vault
 	Docker       *Docker
+	Cloud        Runtime
+	ProjectPool  *pgxpool.Pool
+	DatabaseTLS  bool
 	AppOrigin    string
 	DatabaseHost string
 	SigningKey   []byte
@@ -40,6 +44,7 @@ type Deployment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type State struct {
+	Runtime             string         `json:"runtime"`
 	Project             domain.Project `json:"project"`
 	Messages            []Message      `json:"messages"`
 	Builds              []Build        `json:"builds"`

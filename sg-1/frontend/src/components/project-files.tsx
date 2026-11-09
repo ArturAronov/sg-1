@@ -6,6 +6,7 @@ export function ProjectFiles({ slug, writable }: { slug: string; writable: boole
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [scanRequired, setScanRequired] = useState(false);
   const base = `/api/projects/${slug}/files`;
   useEffect(() => {
     let stopped = false;
@@ -15,7 +16,10 @@ export function ProjectFiles({ slug, writable }: { slug: string; writable: boole
         return r.json();
       })
       .then((r) => {
-        if (!stopped) setFiles(r.files);
+        if (!stopped) {
+          setFiles(r.files);
+          setScanRequired(!!r.scan_required);
+        }
       })
       .catch((e) => {
         if (!stopped) setError(e.message);
@@ -48,7 +52,9 @@ export function ProjectFiles({ slug, writable }: { slug: string; writable: boole
       <p className="runtime-note">
         Stored in private S3-compatible object storage. Files are available only to authorized
         builder users and are not automatically sent to the AI or exposed by public applications.
-        Production uploads require malware scanning before use.
+        {scanRequired
+          ? "New uploads are quarantined until the malware scan is clean. If a download is not ready, wait and retry; contact an administrator for rejected files."
+          : "Production uploads require malware scanning before use."}
       </p>
       {writable && (
         <form onSubmit={upload}>

@@ -29,7 +29,6 @@ export default async function LoginPage({
             <br />
             One conversation at a time.
           </p>
-          <div className="login-art">✳</div>
         </div>
         <span className="tiny-label">SG-1 / INTERNAL APPLICATION STUDIO</span>
       </div>
@@ -38,11 +37,11 @@ export default async function LoginPage({
           <span className="project-icon color-0">
             <Icon name="shield" size={23} />
           </span>
-          <h2>{development ? "Welcome to the studio." : "SSO setup required."}</h2>
+          <h2>{development ? "Welcome to the studio." : "Employee sign-in required."}</h2>
           <p>
             {development
               ? "Use your local development token to open this workspace."
-              : "Employee sign-in is not connected yet. Entra ID and OneLogin must be configured before production access is enabled."}
+              : "Use your company’s Microsoft Entra ID or OneLogin account to open this workspace."}
           </p>
           {development && (
             <form action="/api/session" method="post">
@@ -56,10 +55,12 @@ export default async function LoginPage({
                   minLength={32}
                   maxLength={512}
                   placeholder="Your SG1_DEV_TOKEN"
+                  aria-invalid={!!params.error}
+                  aria-describedby={params.error ? "login-error" : undefined}
                 />
               </label>
               {params.error && (
-                <p role="alert" className="form-error">
+                <p role="alert" className="form-error" id="login-error">
                   Unable to sign in. Check your token and try again.
                 </p>
               )}
@@ -74,12 +75,17 @@ export default async function LoginPage({
               </button>
             </form>
           )}
+          {!development && (
+            <form action="/" method="get">
+              <button className="button primary full-width">Continue with company sign-in</button>
+            </form>
+          )}
           <div className="info-box">
             <Icon name="code" size={17} />
             <span>
               {development
                 ? "Local development only. This is not employee SSO and must not be exposed publicly."
-                : "Access is disabled rather than bypassing authentication."}
+                : "Employee access is protected by your company identity provider."}
             </span>
           </div>
         </div>

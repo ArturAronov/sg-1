@@ -1,0 +1,6 @@
+bucket = "YOUR-EXISTING-TERRAFORM-STATE-BUCKET"
+key = "sg1/production.tfstate"
+region = "us-east-1"
+encrypt = true
+use_lockfile = true
+# kms_key_id = "arn:aws:kms:..." # Required if your state policy mandates a customer key.

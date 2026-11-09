@@ -1,10 +1,11 @@
-.PHONY: setup dev stop logs check integration runtime-test build
+.PHONY: setup dev stop logs check integration runtime-test build aws-check aws-publish
 
 setup:
 	node scripts/setup.mjs
 
 dev:
 	docker compose up --build -d --wait
+	@printf '\nSG-1 is ready! Open http://localhost:42069 to use the app.\n'
 
 stop:
 	docker compose down
@@ -24,3 +25,9 @@ build:
 
 runtime-test:
 	node --env-file=.env scripts/test-runtime.mjs
+
+aws-check:
+	bash scripts/aws/check.sh
+
+aws-publish:
+	bash scripts/aws/publish.sh

@@ -11,6 +11,7 @@ import (
 var (
 	ErrNotFound            = errors.New("not found")
 	ErrForbidden           = errors.New("forbidden")
+	ErrQuota               = errors.New("workspace project quota reached")
 	ErrSlugTaken           = errors.New("project URL is already in use")
 	ErrIdempotencyConflict = errors.New("idempotency key was used for a different request")
 	slugPattern            = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)

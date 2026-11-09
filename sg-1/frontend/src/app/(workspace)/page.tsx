@@ -7,5 +7,11 @@ export default async function ProjectsPage() {
     apiGet<{ projects: Project[] }>("/v1/projects"),
     apiGet<{ departments: Department[] }>("/v1/departments"),
   ]);
-  return <ProjectDashboard projects={projects} departments={departments} />;
+  return (
+    <ProjectDashboard
+      projects={projects}
+      departments={departments}
+      production={process.env.SG1_ENV === "production"}
+    />
+  );
 }

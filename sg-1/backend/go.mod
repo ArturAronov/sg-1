@@ -1,21 +1,29 @@
 module github.com/ArturAronov/sg-1/sg-1/backend
 
-go 1.26.0
+go 1.26.10
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.47.5
+	github.com/aws/aws-sdk-go-v2 v1.47.8
 	github.com/aws/aws-sdk-go-v2/config v1.33.12
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.12
+	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.11
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.67.5
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.104.2
+	github.com/aws/aws-sdk-go-v2/service/iam v1.64.9
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.6
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.11
+	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.49.11
+	github.com/aws/smithy-go v1.28.8
 	github.com/jackc/pgx/v5 v5.11.0
 	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.62.0
 )
 
 require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.25 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.5 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.8 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.8 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.11 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.11 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.23 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.9 // indirect
@@ -25,7 +33,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.39.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.6 // indirect
-	github.com/aws/smithy-go v1.28.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

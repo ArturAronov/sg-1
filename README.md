@@ -2,7 +2,7 @@
 
 An internal application builder for a real-estate company. Next.js 16 / TypeScript frontend, Go API and workers, PostgreSQL, Docker, and private S3-compatible file storage.
 
-**Status: functional local development build pipeline, not a production-ready company platform.** See [PLAN.md](PLAN.md) for the complete requirements. The default branch is `master`.
+**Status: tested local development pipeline; AWS deployment implementation added, but live AWS/OIDC acceptance and security sign-off are required before production.** See [infrastructure/aws/README.md](infrastructure/aws/README.md) for EC2, S3 uploads, RDS, ECR, CodeBuild/Fargate, and Entra ID/OneLogin deployment instructions. See [PLAN.md](PLAN.md) for remaining product requirements. The default branch is `master`.
 
 ## Working locally
 
@@ -20,13 +20,13 @@ An internal application builder for a real-estate company. Next.js 16 / TypeScri
 
 ## Not implemented / production blockers
 
-- Employee Entra ID / OneLogin SSO, individual employee sessions, and membership-management screens/APIs.
-- AWS infrastructure and CodeBuild/ECR/ECS/Fargate deployment. Local Docker is not an ECS implementation.
+- Live validation of Entra ID / OneLogin federation through Cognito/ALB, employee onboarding/offboarding, and membership-management screens/APIs. Identity verification is implemented; company IdP configuration and controlled membership provisioning are still required.
+- Live AWS acceptance of the Terraform infrastructure and CodeBuild/ECR/Fargate runtime. The AWS path is separate from local Docker and must pass the deployment checklist in your account.
 - Automatic generated-source synchronization into the GitHub monorepo. The current source of truth for generated applications is versioned database snapshots; ZIP export is available. A scoped GitHub App integration is still required.
-- Production-grade untrusted-code isolation, egress controls, quotas, image policy, migration safeguards, malware scanning, high availability, and backup/recovery sign-off.
+- Security review of deployed isolation/egress/IAM, image and GuardDuty quarantine policies, quotas, database migrations, retention, monitoring, single-EC2 availability, and backup/recovery sign-off.
 - Automatic parsing/sending of uploaded attachments to models, application-specific named-user authorization, and application access to uploaded builder files. Uploads are deliberately not exposed just because an app is public.
 
-Production server startup is intentionally disabled until real authentication is implemented. **Do not expose this development stack publicly or use sensitive production data in it.** The Docker socket gives the trusted local worker host-level authority. The local PostgreSQL administrator uses development credentials. This arrangement is not suitable for mutually untrusted tenants or company production workloads.
+Production startup requires the authenticated AWS runtime, HTTPS origins, verified RDS TLS, AWS workload credentials, and required runtime settings. **Do not expose the development Compose stack publicly or use sensitive production data in it.** Its shared development token, Docker socket, and local PostgreSQL administrator credentials are not production controls. Production uses `compose.aws.yaml`, not `compose.yaml`; no AWS resources are created by `make dev`.
 
 ## Start
 
@@ -37,7 +37,9 @@ node scripts/setup.mjs
 docker compose up --build -d --wait
 ```
 
-Open **http://localhost:3000**. Sign in using `SG1_DEV_TOKEN` from the root `.env` file.
+Open **http://localhost:42069**. Sign in using `SG1_DEV_TOKEN` from the root `.env` file. You can also start the stack with `make dev`, which prints this URL after all services are ready.
+
+If upgrading an existing checkout from port 3000, update `SG1_PUBLIC_URL` in the root `.env` to `http://localhost:42069` before starting the stack. This keeps sign-in and mutation-origin checks aligned with the new port.
 
 The helper generates separate random development-login, encryption, and object-storage credentials, preserves existing values, and appends newly required credentials to older setups. It never silently rotates an existing encryption key. Keep `.env` private; it is excluded from Git and Docker build contexts.
 
@@ -49,7 +51,7 @@ Use `localhost`, not `127.0.0.1`, in the browser unless `SG1_PUBLIC_URL` is adju
 
 | Service | Address |
 | --- | --- |
-| SG-1 | `http://localhost:3000` |
+| SG-1 | `http://localhost:42069` |
 | API liveness / readiness | `http://127.0.0.1:8080/healthz`, `/readyz` |
 | Application gateway | `http://{project-name}.localhost:8081` |
 | PostgreSQL | `127.0.0.1:55432` |
@@ -100,7 +102,7 @@ API keys are AES-256-GCM encrypted before SQL receives them. Associated data bin
 
 `SG1_CREDENTIALS_KEY` is a base64-encoded 32-byte master key, injected into trusted backend services only. Production must use approved secrets injection and a reviewed rotation/recovery process. Rotating/re-encrypting existing records is not implemented.
 
-The local S3 store uses a separately generated `SG1_S3_SECRET`. Buckets are private; downloads require project authorization and are served as attachments. Startup validates actual object upload/read/delete, not just bucket metadata. The development store uses bounded, small data volumes; adjust its capacity or use AWS S3 for larger workloads. Files are never executed or automatically included in model context. Malware scanning and production file-retention policy remain outstanding.
+The local S3 store uses a separately generated `SG1_S3_SECRET`. Buckets are private; downloads require project authorization and are served as attachments. Development initialization validates object upload/read/delete; API readiness checks bucket access. Files are never executed or automatically included in model context. The AWS deployment adds GuardDuty scanning and denies downloads without a clean scan tag; validate this in the AWS account. Production file-retention/deletion procedures still need operator approval.
 
 The Go S3 adapter can target AWS using `SG1_S3_BUCKET`, `AWS_REGION`, and the standard AWS SDK credential chain when `SG1_S3_ENDPOINT` is unset. In AWS, use a narrowly scoped workload role and a pre-provisioned private/encrypted bucket. Do not run the development bucket initializer against production. Endpoint/access-key overrides are for the local S3-compatible service.
 
@@ -139,6 +141,8 @@ npm run test:e2e
 
 Browser tests require the running stack, load root `.env` without printing secrets, and create visibly named `Browser test ...` projects. They exercise real container startup, authenticated preview, protected/public viewing, private upload/download, source ZIP export, and credential management. Existing provider credentials are skipped, never overwritten. Synthetic keys created by tests are removed. Browser traces are disabled.
 
+For an isolated desktop/mobile presentation check, run `npm run test:theme` from `sg-1/frontend` after installing Playwright Chromium. This starts a separate frontend on port 3107 and a fixture API on port 3108; it needs no Docker, real credentials, or provider calls. It checks responsive layouts, navigation, search/filtering, dialog keyboard behavior, form states, theme contrast, and reduced motion, and saves page screenshots under `test-results/`.
+
 CI runs SQL tests, frontend checks, image builds, the real Docker pipeline test, and browser tests. No AWS resources or paid model calls are needed.
 
 ## Repository layout
@@ -153,4 +157,4 @@ compose.yaml              Development infrastructure only
 PLAN.md                   Complete product plan and remaining production work
 ```
 
-Generated source currently lives in deployment snapshots, not a checked-out `projects/` directory. Do not confuse the completed local execution pipeline with the outstanding GitHub monorepo synchronization or AWS production infrastructure.
+Generated source currently lives in deployment snapshots, not a checked-out `projects/` directory. GitHub synchronization remains outstanding. The AWS path has its own deployment and real-account acceptance checklist; local pipeline success alone does not validate an AWS production deployment.

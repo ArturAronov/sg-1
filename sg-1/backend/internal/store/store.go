@@ -13,14 +13,17 @@ import (
 
 const DevUserID = "00000000-0000-4000-8000-000000000001"
 
-type Store struct{ Pool *pgxpool.Pool }
+type Store struct {
+	Pool         *pgxpool.Pool
+	ProjectLimit int
+}
 
 func (s *Store) Ping(ctx context.Context) error {
 	var applied int
-	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql','0003_runtime.sql','0004_project_files.sql')`).Scan(&applied); err != nil {
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql','0003_runtime.sql','0004_project_files.sql','0005_build_cancellation.sql','0006_aws_workloads.sql','0007_cloud_cleanup.sql')`).Scan(&applied); err != nil {
 		return err
 	}
-	if applied != 4 {
+	if applied != 7 {
 		return errors.New("control-plane migrations have not been applied")
 	}
 	return nil
@@ -127,6 +130,21 @@ func (s *Store) CreateProject(ctx context.Context, u domain.User, in domain.Crea
 	}
 	if !permitted {
 		return domain.Project{}, false, domain.ErrForbidden
+	}
+	if s.ProjectLimit > 0 {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('sg1-project-quota',0))`); err != nil {
+			return domain.Project{}, false, err
+		}
+		if p, exists, e := s.existingRequest(ctx, u, in, key); e != nil || exists {
+			return p, false, e
+		}
+		var count int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM projects WHERE status<>'archived'`).Scan(&count); err != nil {
+			return domain.Project{}, false, err
+		}
+		if count >= s.ProjectLimit {
+			return domain.Project{}, false, domain.ErrQuota
+		}
 	}
 	var id string
 	err = tx.QueryRow(ctx, `INSERT INTO projects (department_id,created_by,name,slug,description,create_request_key)

@@ -1,5 +1,15 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
+
+const mono = localFont({
+  src: [
+    { path: "../../public/fonts/IBMPlexMono-Regular.ttf", weight: "400" },
+    { path: "../../public/fonts/IBMPlexMono-Medium.ttf", weight: "500" },
+  ],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: { default: "SG-1 · Internal studio", template: "%s · SG-1" },
@@ -10,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={mono.variable}>
       <body>{children}</body>
     </html>
   );

@@ -25,12 +25,15 @@ func StarterFiles() map[string]string {
 }
 
 func (s *Service) RunWorker(ctx context.Context, logger *slog.Logger) error {
-	if s.Vault == nil || s.Docker == nil {
+	if s.Vault == nil || (s.Docker == nil && s.Cloud == nil) {
 		return errors.New("worker needs Docker and credential encryption")
 	}
 	lastReconcile := time.Time{}
 	for ctx.Err() == nil {
 		if time.Since(lastReconcile) > 15*time.Second {
+			if cloud, ok := s.Cloud.(*AWSRuntime); ok {
+				cloud.Reconcile(ctx, s)
+			}
 			s.reconcileNetworks(ctx)
 			lastReconcile = time.Now()
 		}
@@ -70,7 +73,9 @@ func (s *Service) reconcileNetworks(ctx context.Context) {
 	rows.Close()
 	for _, id := range ids {
 		repair, cancel := context.WithTimeout(ctx, 15*time.Second)
-		_, _ = s.Docker.PrepareNetwork(repair, id)
+		if s.Cloud == nil {
+			_, _ = s.Docker.PrepareNetwork(repair, id)
+		}
 		cancel()
 	}
 	_, _ = s.Store.Pool.Exec(ctx, `WITH exhausted AS(UPDATE provisioning_jobs SET status='failed',last_error_code='worker_stopped',updated_at=now() WHERE status='running' AND lease_until<now() AND attempts>=3 RETURNING project_id) UPDATE projects SET status='failed' WHERE id IN(SELECT project_id FROM exhausted)`)
@@ -113,13 +118,13 @@ func (s *Service) provision(ctx context.Context, projectID string) error {
 	if err != nil {
 		return err
 	}
-	network, err := s.Docker.PrepareNetwork(ctx, projectID)
+	network, err := s.runtime().PrepareNetwork(ctx, projectID)
 	if err != nil {
 		return err
 	}
 	files := StarterFiles()
 	image := "sg1-starter:local"
-	if _, err = s.Docker.Build(ctx, image, files); err != nil {
+	if image, _, err = s.runtime().Build(ctx, projectID, image, files); err != nil {
 		return err
 	}
 	return s.deploy(ctx, projectID, image, "Project container ready. Describe the application you want to build.", files, network, db, "")
@@ -136,32 +141,38 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 	defer func() {
 		cleanup, c := context.WithTimeout(context.Background(), 10*time.Second)
 		defer c()
-		s.Docker.Remove(cleanup, name)
+		s.runtime().Remove(cleanup, name)
 	}()
-	if err := s.Docker.Start(ctx, image, name, network, db.Preview); err != nil {
+	if err := s.runtime().Start(ctx, image, name, network, db.Preview); err != nil {
 		return err
 	}
-	if err := s.Docker.Healthy(ctx, name); err != nil {
+	if err := s.runtime().Healthy(ctx, name); err != nil {
 		return err
 	}
 	if err := s.probe(ctx, projectID, name); err != nil {
 		return err
 	}
-	s.Docker.Remove(ctx, name)
+	s.runtime().Remove(ctx, name)
+	if s.Cloud != nil {
+		var pending bool
+		if err := s.Store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM aws_workloads WHERE project_id=$1 AND cleanup_requested)`, projectID).Scan(&pending); err != nil || pending {
+			return errors.New("candidate cleanup is still pending")
+		}
+	}
 	production := name + "-live"
 	published := false
 	defer func() {
 		if !published {
 			cleanup, c := context.WithTimeout(context.Background(), 10*time.Second)
 			defer c()
-			s.Docker.Remove(cleanup, production)
+			s.runtime().Remove(cleanup, production)
 		}
 	}()
-	if err := s.Docker.Start(ctx, image, production, network, db.Production); err != nil {
+	if err := s.runtime().Start(ctx, image, production, network, db.Production); err != nil {
 		return err
 	}
-	if err := s.Docker.Healthy(ctx, production); err != nil {
-		s.Docker.Remove(ctx, production)
+	if err := s.runtime().Healthy(ctx, production); err != nil {
+		s.runtime().Remove(ctx, production)
 		return err
 	}
 	if err := s.probe(ctx, projectID, production); err != nil {
@@ -193,7 +204,7 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 	}
 	var previous *string
 	if err = tx.QueryRow(ctx, `SELECT d.container_name FROM project_runtimes r LEFT JOIN deployments d ON d.id=r.current_deployment_id WHERE r.project_id=$1 FOR UPDATE OF r`, projectID).Scan(&previous); err != nil {
-		s.Docker.Remove(ctx, production)
+		s.runtime().Remove(ctx, production)
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO deployments(id,project_id,image,container_name,summary,files) VALUES($1,$2,$3,$4,$5,$6)`, id, projectID, image, production, summary, raw); err != nil {
@@ -220,12 +231,12 @@ func (s *Service) deploy(ctx context.Context, projectID, image, summary string, 
 		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		s.Docker.Remove(ctx, production)
+		s.runtime().Remove(ctx, production)
 		return err
 	}
 	published = true
 	if previous != nil {
-		s.Docker.Stop(ctx, *previous)
+		s.runtime().Stop(ctx, *previous)
 	}
 	return nil
 }
@@ -250,6 +261,8 @@ func (s *Service) buildOne(parent context.Context) (bool, error) {
 	 UPDATE build_jobs SET status=CASE WHEN status='cancelling' THEN 'cancelled' ELSE 'failed' END,
 	 message=CASE WHEN status='cancelling' THEN 'Build cancelled after the worker stopped. The previous deployment is unchanged.' ELSE 'Worker stopped before completion. The previous application is unchanged; retry explicitly.' END,
 	 updated_at=now(),lease_until=NULL WHERE status NOT IN ('queued','succeeded','failed','cancelled') AND lease_until<now()
+	 AND NOT EXISTS(SELECT 1 FROM aws_workloads w WHERE w.project_id=build_jobs.project_id AND w.cleanup_requested)
+	 AND NOT EXISTS(SELECT 1 FROM aws_builds b WHERE b.project_id=build_jobs.project_id AND b.cancel_requested)
 	 RETURNING project_id,message
 	) INSERT INTO project_messages(project_id,role,content) SELECT project_id,'system',message FROM recovered`)
 	var id, projectID, userID, provider, model, prompt, kind string
@@ -290,7 +303,7 @@ func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provi
 	if err != nil {
 		return errors.New("project database is unavailable")
 	}
-	network, err := s.Docker.PrepareNetwork(ctx, projectID)
+	network, err := s.runtime().PrepareNetwork(ctx, projectID)
 	if err != nil {
 		return err
 	}
@@ -352,7 +365,7 @@ func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provi
 		if err = s.progress(ctx, id, "building", "Building the Docker image"); err != nil {
 			return err
 		}
-		output, err := s.Docker.Build(ctx, image, generated.Files)
+		builtImage, output, err := s.runtime().Build(ctx, projectID, image, generated.Files)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -363,6 +376,7 @@ func (s *Service) executeBuild(ctx context.Context, id, projectID, userID, provi
 			}
 			continue
 		}
+		image = builtImage
 		if err = s.progress(ctx, id, "validating", "Checking candidate startup before deployment"); err != nil {
 			return err
 		}

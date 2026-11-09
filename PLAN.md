@@ -1,6 +1,6 @@
 # SG-1 — Product and Implementation Plan
 
-Status: local end-to-end Docker build/deployment pipeline implemented. Production SSO, AWS hosting, GitHub source synchronization, and security sign-off remain outstanding.
+Status: local end-to-end Docker pipeline implemented. AWS Terraform, Cognito/ALB identity verification, and isolated CodeBuild/ECR/Fargate runtime implementations added; live AWS/IdP acceptance, GitHub synchronization, and security sign-off remain outstanding. See infrastructure/aws/README.md.
 
 This document records the agreed requirements, recommended architecture, implementation sequence, and decisions still needed. Items marked **proposed** are recommendations, not requirements already approved by stakeholders.
 
@@ -10,23 +10,23 @@ This document records the agreed requirements, recommended architecture, impleme
 - [x] Go API, PostgreSQL connection handling, migrations, and development seed command.
 - [x] Persistent control-plane identities, departments, roles, projects, locked access defaults, audit events, and provisioning outbox.
 - [x] Authorized project listing/details and transactional, idempotent project creation with globally unique slugs.
-- [x] Explicitly development-only authentication; production access fails closed until SSO is implemented.
+- [x] Explicitly development-only shared token; production requires verified ALB/Cognito employee identity and secure AWS configuration.
 - [x] Local Docker Compose stack and non-root application images.
 - [x] Personal OpenAI, Claude/Anthropic, GLM, and Kimi API-key settings with encrypted storage, replacement, removal, and audit events.
 - [x] Unit/integration tests and CI definitions; browser smoke-test coverage.
-- [ ] Entra ID / OneLogin and membership-management UI/API.
+- [ ] Validate Entra ID / OneLogin federation through Cognito/ALB in the company tenants. Signature/issuer/client/expiry verification and subject-bound employee identities are implemented. Membership-management UI/API and onboarding/offboarding approval remain outstanding.
 - [x] Real local project-container provisioning before the first prompt, including separate production/preview PostgreSQL databases and credentials.
 - [x] Local isolated-origin application gateway, password enforcement, public access, protected employee previews, and access-session revocation.
 - [x] Private S3-protocol file uploads/downloads using persistent local SeaweedFS storage and an AWS S3 adapter.
 - [x] OpenAI Responses, Anthropic Messages, GLM/Kimi compatible provider clients, model selection, bounded build/repair attempts, health-validated deployment, history, and image rollback.
 - [x] Real Docker integration tests for successful/failed builds, rollback, persistent records, and control-plane database isolation. Provider responses are synthetic in tests, not paid live calls.
 - [x] Authorized, durable cancellation for queued/running builds and restores, worker interruption, candidate cleanup, and a publication lock preventing accepted cancellations from deploying. Database tests cover cancellation/publication races and abandoned cancellation recovery.
-- [ ] AWS infrastructure, CodeBuild/ECR/ECS/Fargate deployment, and production S3 setup.
+- [ ] Validate the added AWS infrastructure and CodeBuild/ECR/Fargate runtime in a real account: EC2 control plane, private verified-TLS RDS, private S3 with scan quarantine, immutable scanned ECR images, and workload isolation. Implementation does not equal live acceptance.
 - [ ] Generated source synchronized into GitHub `projects/{department}/{project}`; current source lives in versioned database snapshots with ZIP export.
-- [ ] Reviewed database migration safeguards, production untrusted-code isolation, resource quotas, malware scanning, and retention/archival workflows.
+- [ ] Security sign-off for migrations, IAM/egress/isolation, quotas, image scanning, malware quarantine, and retention/archival. Runtime defenses are implemented but need deployed acceptance and recovery testing.
 - [ ] Production hardening, recovery rehearsal, and pilot approval.
 
-Creating a project now immediately queues real local provisioning; the worker builds a starter image, creates persistent databases and private networking, starts a health-checked container, and enables its preview. Chat can then generate and deploy applications using a saved provider key and selected model. This is a development implementation, not an ECS deployment or a production-ready multi-user platform. See README.md for setup, tested functionality, and remaining blockers.
+Creating a project queues provisioning; the local worker uses Docker, while the separately configured AWS adapter uses CodeBuild, scanned immutable ECR images and private Fargate services. Both preserve persistent project databases and validate HTTP health before publishing. Local execution is tested; the AWS adapter still requires real-account/IdP acceptance and production security sign-off. See README.md and infrastructure/aws/README.md.
 
 ## 1. Product goal
 
@@ -53,7 +53,7 @@ Initial audience: approximately 20–50 users. The expected number of projects a
 - Projects have persistent PostgreSQL data independent of application containers.
 - Container images are stored in ECR.
 - Published application containers run on ECS Fargate.
-- Hosting SG-1 itself on ECS versus EC2 was not originally decided. ECS Fargate is the current recommendation.
+- SG-1's trusted control plane will run on EC2, with generated builds/workloads isolated in CodeBuild and ECS Fargate (deployment decision confirmed during AWS preparation).
 
 ### 2.2 Generated applications
 
