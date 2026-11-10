@@ -1,4 +1,7 @@
-variable "region" { type = string }
+variable "region" {
+  type    = string
+  default = "ap-northeast-3"
+}
 variable "name" {
   type    = string
   default = "sg1-prod"

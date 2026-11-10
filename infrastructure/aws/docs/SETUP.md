@@ -59,7 +59,7 @@ Ask the human for missing values. Secret **ARNs** may be supplied; secret **valu
 | Input                                                              | Maps to / requirement                                                                                                    |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | AWS profile/role and expected 12-digit account ID                  | Deployment identity; not a Terraform variable                                                                            |
-| Region                                                             | `region`; commercial AWS; verify Cognito/ALB/GuardDuty/Fargate support                                                   |
+| Region                                                             | `region`, default `ap-northeast-3` (Osaka); verify Cognito/ALB/GuardDuty/Fargate support                                   |
 | Deployment name                                                    | `name`, default `sg1-prod`; 3–17 lowercase letters/digits/hyphens, starting with a letter                                |
 | Dedicated VPC ID/CIDR                                              | `vpc_id`; DNS support and DNS hostnames enabled; no shared workloads                                                     |
 | At least two public subnet IDs                                     | `public_subnet_ids`; distinct AZs, internet routing, ALB capacity                                                        |
@@ -100,7 +100,7 @@ Run from the repository root. Use operator-supplied values; angle-bracket values
 
 ```sh
 export AWS_PROFILE='<approved-profile>'
-export AWS_REGION='<approved-region>'
+export AWS_REGION='ap-northeast-3'
 export AWS_DEFAULT_REGION="$AWS_REGION"
 export AWS_PAGER=''
 export EXPECTED_ACCOUNT_ID='<approved-account-id>'

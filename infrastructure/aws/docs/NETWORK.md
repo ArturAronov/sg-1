@@ -185,7 +185,7 @@ Frontend health: HTTP `/signed-out` -> 200 on 42069. Gateway health: `/__sg1_hea
 Run only in an approved account/region with the [validator permissions](IAM.md#read-only-validation-permissions). Replace placeholders with verified IDs; do not dump Terraform state or secret-bearing API responses. These examples are inspection, not instructions to mutate resources.
 
 ```sh
-export AWS_REGION='<approved-region>'
+export AWS_REGION='ap-northeast-3'
 export VPC_ID='<approved-vpc-id>'
 aws ec2 describe-vpc-attribute --vpc-id "$VPC_ID" --attribute enableDnsSupport
 aws ec2 describe-vpc-attribute --vpc-id "$VPC_ID" --attribute enableDnsHostnames

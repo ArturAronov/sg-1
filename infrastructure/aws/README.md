@@ -22,7 +22,7 @@ This is a **single-EC2 control plane**, not an HA control plane. RDS is Multi-AZ
 
 ## Prerequisites
 
-1. An approved AWS commercial region/account and a dedicated VPC with DNS support/hostnames enabled.
+1. An approved AWS account and a dedicated VPC in **`ap-northeast-3` (Asia Pacific — Osaka)** with DNS support/hostnames enabled. This is the Terraform deployment default; verify service availability and quotas in this region before provisioning. The Terraform backend region must match the actual state bucket location, which can differ from the deployment region.
 2. Two public ALB subnets and at least two private subnets in distinct AZs. Private control-plane routing must provide HTTPS egress through NAT for identity key retrieval, AI providers, ECR login and initial package installation. Supply the private route-table IDs for the S3 gateway endpoint. Import/reuse pre-existing endpoints instead of creating conflicting private-DNS endpoints.
 3. Route 53 hosted zones for the platform and a **different registrable application domain**, for example `sg1.example.com` and `*.apps.example-apps.com`. Sibling subdomains under one registrable domain are rejected in production to prevent parent-domain cookie attacks from generated JavaScript. Set both hosted-zone IDs. ACM and DNS records are provisioned here.
 4. An **existing encrypted, versioned Terraform state bucket** and restricted state-access role. State contains Cognito/IdP client secrets even though Terraform masks them in output. Use native S3 state locking. Never commit state, plans, tfvars, deployment JSON, or secrets.
