@@ -2,6 +2,12 @@
 
 **Deployment implementation, not a production certification.** Terraform validation and local tests cannot prove live AWS/IAM/OIDC behavior. Do not admit employees or sensitive data until the acceptance checklist below passes in your account. No AWS resources are created by local development or by CI validation.
 
+## LLM-assisted setup
+
+Start with [docs/SETUP.md](docs/SETUP.md) for the operator instructions, required inputs, approval gates, deployment sequence and handoff format. Its companion references cover [detailed IAM permissions and policy examples](docs/IAM.md) and [exact security groups, routing, endpoints and DNS rules](docs/NETWORK.md).
+
+**Known pre-deployment blocker:** `network.tf` currently lacks ALB outbound HTTPS for Cognito's authentication endpoints. Review and approve the [required correction](docs/NETWORK.md#required-correction-alb-to-cognito-https) before deployment; these docs do not apply it or authorize cloud changes.
+
 ## Architecture
 
 - **EC2:** trusted Next.js frontend, Go API, gateway, and controller worker, using immutable platform images from **ECR**. Private subnet, no public IP or SSH, administration through SSM. Only the ALB can reach ports 42069/8081. The API has no host port. No production container receives the Docker socket.
@@ -67,10 +73,10 @@ The publisher builds Linux/amd64 platform images, pushes/reuses immutable commit
 Use **SSM Session Manager**, not a public SSH port:
 
 ```sh
-aws ssm start-session --target <SG1_INSTANCE_ID>
+aws ssm start-session --region '<REGION>' --target '<SG1_INSTANCE_ID>'
 sudo -i
 cd /opt/sg1
-aws s3 cp --region <REGION> s3://<BUCKET>/releases/<COMMIT>/release.tar.gz release.tar.gz
+aws s3 cp --region '<REGION>' 's3://<BUCKET>/releases/<COMMIT>/release.tar.gz' release.tar.gz
 # Verify this bundle against your reviewed release artifact/checksum before extracting.
 tar --no-same-owner -xzf release.tar.gz
 bash boot.sh

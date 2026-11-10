@@ -4,6 +4,8 @@ An internal application builder for a real-estate company. Next.js 16 / TypeScri
 
 **Status: tested local development pipeline; AWS deployment implementation added, but live AWS/OIDC acceptance and security sign-off are required before production.** See [infrastructure/aws/README.md](infrastructure/aws/README.md) for EC2, S3 uploads, RDS, ECR, CodeBuild/Fargate, and Entra ID/OneLogin deployment instructions. See [PLAN.md](PLAN.md) for remaining product requirements. The default branch is `master`.
 
+For an AI-assisted AWS deployment, give the agent [infrastructure/aws/docs/SETUP.md](infrastructure/aws/docs/SETUP.md). It includes approval gates and links to detailed IAM/security-group references and policy examples; it is not authorization to deploy.
+
 ## Working locally
 
 - Create a project: SG-1 immediately queues a real starter-container build, creates isolated application networks and persistent PostgreSQL resources, checks health, and opens its live preview. No prompt is required.
@@ -49,13 +51,13 @@ Use `localhost`, not `127.0.0.1`, in the browser unless `SG1_PUBLIC_URL` is adju
 
 ### Addresses and services
 
-| Service | Address |
-| --- | --- |
-| SG-1 | `http://localhost:42069` |
+| Service                  | Address                                    |
+| ------------------------ | ------------------------------------------ |
+| SG-1                     | `http://localhost:42069`                   |
 | API liveness / readiness | `http://127.0.0.1:8080/healthz`, `/readyz` |
-| Application gateway | `http://{project-name}.localhost:8081` |
-| PostgreSQL | `127.0.0.1:55432` |
-| Object storage | Private Docker network only; no host port |
+| Application gateway      | `http://{project-name}.localhost:8081`     |
+| PostgreSQL               | `127.0.0.1:55432`                          |
+| Object storage           | Private Docker network only; no host port  |
 
 Modern browsers resolve `*.localhost` to loopback. Application origins differ from SG-1 and from other projects. Protected embedded sessions use Secure, HTTP-only, partitioned cookies; production requires HTTPS and approved domains. Chrome/Chromium is the currently tested browser; validate company browsers before rollout.
 

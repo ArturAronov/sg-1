@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListOnlyTheConfiguredStateAndLockKeys",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<STATE_BUCKET>",
+      "Condition": {
+        "StringEquals": {
+          "s3:prefix": [
+            "<STATE_KEY>",
+            "<STATE_KEY>.tflock"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadWriteStateWithoutDelete",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::<STATE_BUCKET>/<STATE_KEY>"
+    },
+    {
+      "Sid": "AcquireAndReleaseNativeS3Lock",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::<STATE_BUCKET>/<STATE_KEY>.tflock"
+    }
+  ]
+}
