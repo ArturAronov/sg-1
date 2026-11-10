@@ -1,6 +1,6 @@
 # SG-1 AWS network and security-group reference
 
-Read with [docs/SETUP.md](../docs/SETUP.md) and [IAM.md](IAM.md). The tables describe **current Terraform rules**, followed by an explicitly marked missing rule. Do not confuse a desired design with rules already present in AWS.
+Read with [docs/SETUP.md](../docs/SETUP.md) and [IAM.md](IAM.md). The tables describe **current Terraform rules**, including authentication HTTPS egress. Do not confuse rules defined in source with rules already applied in AWS. See [shared-domain browser security](COOKIE_SECURITY.md) for cookie and origin requirements.
 
 Sources: [`network.tf`](../network.tf), [`compute.tf`](../compute.tf), [`dns-firewall.tf`](../dns-firewall.tf), [`data.tf`](../data.tf), [`compose.aws.yaml`](../../../compose.aws.yaml).
 
@@ -47,6 +47,7 @@ No SSH 22, direct API 8080 on EC2, Docker 2375/2376, public PostgreSQL, task sel
 | --------- | ------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------- |
 | ALB       | Control SG                                       | 42069 | Frontend requests/health                                                                          |
 | ALB       | Control SG                                       | 8081  | Gateway requests/health                                                                           |
+| ALB       | `0.0.0.0/0`                                      | 443   | Cognito token/user-info HTTPS; does not grant task internet egress |
 | Control   | `0.0.0.0/0`                                      | 443   | AWS API/SSM, provider HTTPS, key retrieval, package/release tooling through applicable routes     |
 | Control   | Apps SG                                          | 8080  | Private HTTP app access/probes                                                                    |
 | Control   | Control DB SG                                    | 5432  | Control SQL                                                                                       |
@@ -61,9 +62,9 @@ SGs cannot authorize an FQDN or an S3 bucket. The S3 managed prefix list alone c
 
 ### Required correction: ALB-to-Cognito HTTPS
 
-**Current blocker:** the ALB outbound matrix above has no TCP 443 rule. Authentication needs IPv4 access from the ALB to the token/user-info endpoints. An employee's browser reaching Cognito is not sufficient: the ALB must complete its own HTTPS exchange.
+`network.tf` includes `alb_auth_https` for outbound IPv4 TCP 443. Authentication needs access from the ALB to token/user-info endpoints. An employee's browser reaching Cognito is not sufficient: the ALB must complete its own HTTPS exchange. Verify the rule in the approved plan and deployed SG.
 
-Propose a reviewed rule in `network.tf`, not a one-off console change. For public, dynamic Cognito addresses, a common proposed correction is the following; **this snippet is not applied or present in Terraform merely because it is documented**:
+The implemented rule is shown below. It is not applied to AWS merely because it exists in Terraform or documentation:
 
 ```hcl
 resource "aws_vpc_security_group_egress_rule" "alb_auth_https" {
@@ -76,7 +77,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_auth_https" {
 }
 ```
 
-Obtain security approval for the destination scope. If the organization requires narrower destinations, use an approved maintained IPv4 destination strategy compatible with Cognito endpoint changes; don't hardcode a one-time DNS answer or invent a Cognito SG/FQDN rule. This proposal allows only ALB-initiated TCP 443, not arbitrary ports and **not** task internet egress. Verify public subnet IGW routing, NACLs and both providers' full callback flows after an approved apply.
+Obtain security approval for the destination scope. If narrower destinations are required, use an approved maintained IPv4 destination strategy compatible with Cognito changes; don't hardcode one DNS answer or invent a Cognito SG/FQDN rule. This rule allows only ALB-initiated TCP 443, not arbitrary ports or task internet egress. Verify public subnet IGW routing, NACLs and every enabled provider's full callback flow after an approved apply.
 
 Source: [AWS ALB authentication requirements](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-authenticate-users.html#configure-user-authentication). Do not remove authentication while testing reachability.
 
@@ -159,13 +160,13 @@ This is not complete data-loss prevention. The AWS/GitHub allowlist is intention
 | Priority | Host/path                                            | Action                                                            |
 | -------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
 | 5        | Platform host, `/signed-out`                         | Public frontend                                                   |
-| 10       | Platform host, `/`, `/build/*`, `/settings/*`        | Cognito authentication, then frontend                             |
+| 10       | Platform host, `/`, `/build/*`, `/settings/*`, `/app-access/*` | Cognito authentication, then frontend |
 | 11       | Platform host, `/api/*`, `/login`                    | Cognito authentication, then frontend                             |
 | 15       | Remaining platform-host paths (viewer/static assets) | Public frontend; private APIs still verify identity independently |
 | 20       | `*.apps_domain`                                      | Gateway; app access enforced there                                |
 | Default  | Unmatched host                                       | Fixed 404                                                         |
 
-Do not protect every platform path with SSO: visitor-facing `/{project-slug}` URLs must remain usable according to app access settings. Conversely, a public viewer route is not permission to bypass backend identity checks. Explicitly test path variations and the callback handling. Identity verification checks ES256 signature, signer ALB ARN, Cognito issuer, client, expiry and immutable subject; unsigned identity/email headers are not trusted.
+Do not protect every platform path with SSO: visitor-facing `/projects/{app-slug-id}` URLs must remain usable according to app access settings. These paths are handled by the priority-15 public frontend rule; legacy root-level viewer URLs redirect to the new path. The trusted viewer embeds generated code on the separate gateway origin rather than serving it from SG-1's origin. Conversely, a public viewer route is not permission to bypass backend identity checks. Explicitly test path variations and the callback handling. Identity verification checks ES256 signature, signer ALB ARN, Cognito issuer, client, expiry and immutable subject; unsigned identity/email headers are not trusted.
 
 | Connection                             | Current transport                                                                         |
 | -------------------------------------- | ----------------------------------------------------------------------------------------- |

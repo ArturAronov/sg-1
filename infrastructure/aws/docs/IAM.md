@@ -4,6 +4,8 @@ This is the permissions companion to the [LLM setup runbook](../docs/SETUP.md). 
 
 Sources of truth: [`iam.tf`](../iam.tf), [`malware.tf`](../malware.tf), [`versions.tf`](../versions.tf), [`aws.go`](../../../sg-1/backend/internal/platform/aws.go), and [`scripts/aws`](../../../scripts/aws/). Re-read them if the revision changes.
 
+Current deployment defaults: Entra only (`enable_onelogin=false`), one public `chickensoup.dev` zone for platform and wildcard-app records. In the capability tables below, references to two IdP secrets/two public zones describe the optional expanded configuration: grant access only to the enabled provider's secret and actual zone(s). Do not provision a OneLogin secret or authorize a second zone unless explicitly enabled/selected.
+
 ## ARN notation
 
 The examples use commercial partition `arn:aws`. Replace all placeholders privately before policy validation. Secret names acquire an AWS-generated suffix: use exact returned ARNs where possible, not guessed ARNs.

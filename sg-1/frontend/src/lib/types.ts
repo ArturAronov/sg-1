@@ -10,7 +10,7 @@ export type Project = {
   slug: string;
   description: string;
   status: "provisioning" | "ready" | "failed" | "archiving" | "archived";
-  access_mode: "password" | "public";
+  access_mode: "members" | "password" | "public";
   role: Role;
   created_at: string;
 };

@@ -73,7 +73,7 @@ test("create a real protected container and open its builder", async ({ page, ba
   const visitor = await page.context().browser()!.newContext();
   try {
     const app = await visitor.newPage();
-    await app.goto(`${baseURL}/${slug}`);
+    await app.goto(`${baseURL}/projects/${slug}`);
     const frame = app.frameLocator('iframe[title="Published application"]');
     await expect(frame.getByRole("heading", { name: "Password required" })).toBeVisible();
     await frame.getByLabel("Application password").fill("browser-test-password-123");
@@ -89,7 +89,7 @@ test("create a real protected container and open its builder", async ({ page, ba
     const anonymous = await page.context().browser()!.newContext();
     try {
       const publicPage = await anonymous.newPage();
-      await publicPage.goto(`${baseURL}/${slug}`);
+      await publicPage.goto(`${baseURL}/projects/${slug}`);
       const publicFrame = publicPage.frameLocator('iframe[title="Published application"]');
       await expect(
         publicFrame.getByRole("heading", { name: "Your project is running." }),
@@ -118,7 +118,7 @@ test("create a real protected container and open its builder", async ({ page, ba
 });
 
 test("viewer URLs fail closed instead of publishing project data", async ({ page }) => {
-  const response = await page.goto("/private-project");
+  const response = await page.goto("/projects/private-project");
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "Nothing published here yet." })).toBeVisible();
   await expect(page.getByText("Local developer", { exact: true })).toHaveCount(0);

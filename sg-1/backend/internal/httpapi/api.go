@@ -86,7 +86,12 @@ func (a *API) Handler() http.Handler {
 			writeError(w, 404, "not_found", "Application not found")
 			return
 		}
-		writeJSON(w, 200, map[string]string{"url": strings.ReplaceAll(a.Platform.AppOrigin, "{slug}", slug)})
+		var mode string
+		if err := a.Platform.Store.Pool.QueryRow(r.Context(), `SELECT mode FROM project_access_settings a JOIN projects p ON p.id=a.project_id WHERE p.slug=$1`, slug).Scan(&mode); err != nil {
+			writeError(w, 404, "not_found", "Application not found")
+			return
+		}
+		writeJSON(w, 200, map[string]string{"url": strings.ReplaceAll(a.Platform.AppOrigin, "{slug}", slug), "mode": mode})
 	})
 	protected.HandleFunc("GET /v1/me", func(w http.ResponseWriter, r *http.Request) {
 		mode := "sso"

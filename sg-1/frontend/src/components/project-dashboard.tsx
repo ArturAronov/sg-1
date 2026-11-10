@@ -156,7 +156,11 @@ export function ProjectDashboard({
                 <div className="card-bottom">
                   <span>
                     <Icon name="lock" size={13} />
-                    {project.access_mode === "password" ? "Password protected" : "Public"}
+                    {project.access_mode === "members"
+                      ? "Project members only"
+                      : project.access_mode === "password"
+                        ? "Password protected"
+                        : "Public"}
                   </span>
                   <span className="card-arrow">
                     <Icon name="arrow" size={17} />

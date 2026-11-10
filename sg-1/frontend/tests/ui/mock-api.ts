@@ -54,9 +54,33 @@ createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
   const send = (value: unknown) => response.end(JSON.stringify(value));
   if (path === "/healthz") return send({ ok: true });
+  if (path === "/public/projects/members-app" || path === "/public/projects/denied-app") {
+    return send({ url: "http://127.0.0.1:3108/published-fixture", mode: "members" });
+  }
+  if (path === "/public/projects/property-hub") {
+    if (request.headers.authorization || request.headers.cookie) {
+      response.statusCode = 400;
+      return send({ error: { message: "Viewer must not forward employee credentials" } });
+    }
+    return send({ url: "http://127.0.0.1:3108/published-fixture" });
+  }
+  if (path.startsWith("/public/projects/")) {
+    response.statusCode = 404;
+    return send({ error: { message: "No published application" } });
+  }
+  if (path === "/published-fixture") {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    return response.end("<!doctype html><html><body><h1>Published fixture app</h1></body></html>");
+  }
   if (request.headers.authorization !== "Bearer theme-test-only-not-a-real-secret-00000000") {
     response.statusCode = 401;
     return send({ error: { message: "Test authentication required" } });
+  }
+  if (path === "/v1/projects/members-app/member-session")
+    return send({ url: "http://127.0.0.1:3108/published-fixture" });
+  if (path === "/v1/projects/denied-app/member-session") {
+    response.statusCode = 403;
+    return send({ error: { message: "Project membership required" } });
   }
   if (path === "/v1/me")
     return send({

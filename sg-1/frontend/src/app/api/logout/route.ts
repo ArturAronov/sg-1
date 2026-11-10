@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { ALB_SESSION_COOKIES } from "@/lib/auth-cookies";
 import { publicURL, SESSION_COOKIE } from "@/lib/auth";
 import { isSameOrigin } from "@/lib/security";
 
@@ -16,14 +16,19 @@ export async function POST(request: Request) {
     target.searchParams.set("client_id", client);
     target.searchParams.set("logout_uri", new URL("/signed-out", base).href);
     const response = NextResponse.redirect(target, 303);
-    for (const cookie of (await cookies()).getAll()) {
-      if (/^SG1AuthSession(?:-[0-3])?$/.test(cookie.name))
-        response.cookies.set(cookie.name, "", {
-          path: "/",
-          secure: true,
-          httpOnly: true,
-          maxAge: 0,
-        });
+    // Clear every known shard, even when missing/duplicated in the request.
+    // Legacy names are cleared for migration, never accepted for authentication.
+    for (const name of [
+      ...ALB_SESSION_COOKIES,
+      "SG1AuthSession",
+      ...[0, 1, 2, 3].map((i) => `SG1AuthSession-${i}`),
+    ]) {
+      response.cookies.set(name, "", {
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        maxAge: 0,
+      });
     }
     response.headers.set("Cache-Control", "no-store");
     return response;

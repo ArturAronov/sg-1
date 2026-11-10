@@ -33,11 +33,36 @@ variable "private_route_table_ids" {
   }
 }
 variable "hosted_zone_id" { type = string }
-variable "apps_hosted_zone_id" { type = string }
-variable "domain" { type = string }
-variable "apps_domain" { type = string }
+variable "apps_hosted_zone_id" {
+  type        = string
+  default     = ""
+  description = "Optional separate app zone; defaults to the platform zone."
+}
+variable "domain" {
+  type    = string
+  default = "sg1.chickensoup.dev"
+}
+variable "apps_domain" {
+  type    = string
+  default = "apps.chickensoup.dev"
+  validation {
+    condition     = var.domain != var.apps_domain && !endswith(var.domain, ".${var.apps_domain}") && !endswith(var.apps_domain, ".${var.domain}")
+    error_message = "The app wildcard namespace and platform hostname must not overlap."
+  }
+}
 variable "entra_secret_arn" { type = string }
-variable "onelogin_secret_arn" { type = string }
+variable "enable_onelogin" {
+  type    = bool
+  default = false
+}
+variable "onelogin_secret_arn" {
+  type    = string
+  default = ""
+  validation {
+    condition     = !var.enable_onelogin || length(var.onelogin_secret_arn) > 0
+    error_message = "Set onelogin_secret_arn when enable_onelogin is true."
+  }
+}
 variable "instance_type" {
   type    = string
   default = "t3.medium"

@@ -36,3 +36,17 @@ test("body limit checks bytes, not just characters or content-length", async () 
     /too large/,
   );
 });
+
+test("shared-parent app origins are not authorized platform mutation origins", () => {
+  const platform = "https://sg1.chickensoup.dev";
+  assert.equal(isSameOrigin(platform, platform), true);
+  for (const origin of [
+    "https://one.apps.chickensoup.dev",
+    "https://apps.chickensoup.dev",
+    "https://chickensoup.dev",
+    "https://sg1.chickensoup.dev.evil.example",
+    "null",
+  ]) {
+    assert.equal(isSameOrigin(origin, platform), false);
+  }
+});

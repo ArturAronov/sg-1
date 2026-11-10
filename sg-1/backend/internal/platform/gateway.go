@@ -21,6 +21,10 @@ import (
 
 const appCookie = "__Host-sg1_app"
 
+func reservedAppCookie(name string) bool {
+	return name == appCookie || strings.HasPrefix(name, "sg1_") || strings.HasPrefix(name, "__Host-SG1AuthSession") || strings.HasPrefix(name, "SG1AuthSession")
+}
+
 type ticket struct {
 	Project string `json:"p"`
 	User    string `json:"u,omitempty"`
@@ -75,6 +79,9 @@ func (s *Service) PreviewURL(ctx context.Context, u domain.User, slug string) (s
 	if p.Status != "ready" {
 		return "", ErrNotReady
 	}
+	if p.AccessMode == "members" && !s.projectMember(ctx, u.ID, p.ID) {
+		return "", domain.ErrForbidden
+	}
 	var version int
 	if err = s.Store.Pool.QueryRow(ctx, `SELECT credential_version FROM project_access_settings WHERE project_id=$1`, p.ID).Scan(&version); err != nil {
 		return "", err
@@ -87,6 +94,25 @@ type application struct {
 	ID, Slug, Mode, Container string
 	Password                  *string
 	Version                   int
+}
+
+// App membership is deliberately narrower than department/platform administration.
+// Recheck the active user and explicit project membership on every app request.
+func (s *Service) projectMember(ctx context.Context, userID, projectID string) bool {
+	var allowed bool
+	err := s.Store.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM project_memberships m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1 AND m.user_id=$2 AND u.active)`, projectID, userID).Scan(&allowed)
+	return err == nil && allowed
+}
+
+func (s *Service) MemberURL(ctx context.Context, u domain.User, slug string) (string, error) {
+	app, err := s.lookupApp(ctx, slug)
+	if err != nil {
+		return "", domain.ErrNotFound
+	}
+	if app.Mode != "members" || !s.projectMember(ctx, u.ID, app.ID) {
+		return "", domain.ErrForbidden
+	}
+	return s.appURL(slug) + "/__sg1/member?ticket=" + url.QueryEscape(s.sign(ticket{Project: app.ID, User: u.ID, Kind: "member", Version: app.Version, Expires: time.Now().Add(time.Minute).Unix()})), nil
 }
 
 func (s *Service) lookupApp(ctx context.Context, slug string) (application, error) {
@@ -103,7 +129,13 @@ func (s *Service) allowed(ctx context.Context, t ticket, app application) bool {
 	if t.Kind == "password" {
 		return app.Mode == "password" && app.Password != nil
 	}
+	if t.Kind == "member" {
+		return app.Mode == "members" && s.projectMember(ctx, t.User, app.ID)
+	}
 	if t.Kind == "preview" {
+		if app.Mode == "members" && !s.projectMember(ctx, t.User, app.ID) {
+			return false
+		}
 		u, err := s.Store.User(ctx, t.User)
 		if err != nil {
 			return false
@@ -198,18 +230,29 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Security-Policy", "frame-ancestors "+platformOrigin+"; base-uri 'self'; form-action 'self'")
-		if r.URL.Path == "/__sg1/preview" {
+		if r.URL.Path == "/__sg1/preview" || r.URL.Path == "/__sg1/member" {
 			w.Header().Set("Referrer-Policy", "no-referrer")
 			t, err := s.verify(r.URL.Query().Get("ticket"))
-			if err != nil || t.Kind != "preview" || !s.allowed(r.Context(), t, app) {
+			expectedKind := "preview"
+			if r.URL.Path == "/__sg1/member" {
+				expectedKind = "member"
+			}
+			if err != nil || t.Kind != expectedKind || !s.allowed(r.Context(), t, app) {
 				http.Error(w, "Preview access denied", 403)
 				return
+			}
+			if t.Kind == "member" {
+				t.Expires = time.Now().Add(30 * time.Minute).Unix()
 			}
 			s.setAppCookie(w, s.sign(t))
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
 		if r.URL.Path == "/__sg1/login" {
+			if app.Mode != "password" {
+				http.Error(w, "Password access is not enabled", http.StatusForbidden)
+				return
+			}
 			if r.Method != "POST" || r.Header.Get("Origin") != expected.Scheme+"://"+expected.Host {
 				http.Error(w, "Origin not allowed", 403)
 				return
@@ -245,6 +288,14 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 			}
 		}
 		if !allowed {
+			if app.Mode == "members" {
+				if r.Method == "GET" && strings.Contains(r.Header.Get("Accept"), "text/html") && r.Header.Get("Sec-Fetch-Dest") != "iframe" {
+					http.Redirect(w, r, platformOrigin+"/app-access/"+url.PathEscape(app.Slug), http.StatusSeeOther)
+				} else {
+					http.Error(w, "Project membership required. Open the shared project link to sign in again.", http.StatusUnauthorized)
+				}
+				return
+			}
 			if r.Method == "GET" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				s.passwordForm(w, app, "", 401)
 			} else {
@@ -270,7 +321,7 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 			pr.Out.Header.Del("X-Amzn-Oidc-Accesstoken")
 			pr.Out.Header.Del("Cookie")
 			for _, cookie := range pr.In.Cookies() {
-				if cookie.Name != appCookie && !strings.HasPrefix(cookie.Name, "sg1_") {
+				if !reservedAppCookie(cookie.Name) {
 					pr.Out.AddCookie(cookie)
 				}
 			}
@@ -280,7 +331,7 @@ func (s *Service) Gateway(platformOrigin string) http.Handler {
 			cookies := response.Cookies()
 			response.Header.Del("Set-Cookie")
 			for _, cookie := range cookies {
-				if cookie.Name == appCookie || strings.HasPrefix(cookie.Name, "sg1_") {
+				if reservedAppCookie(cookie.Name) {
 					continue
 				}
 				cookie.Domain = ""

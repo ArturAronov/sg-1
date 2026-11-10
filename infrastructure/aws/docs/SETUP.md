@@ -29,7 +29,7 @@ Terraform and application code describe the implementation. These documents expl
 ## 2. Architecture and ownership
 
 ```text
-Employees -> HTTPS ALB -> Cognito -> Entra ID or OneLogin
+Employees -> HTTPS ALB -> Cognito -> Entra ID (OneLogin optional)
                       -> private EC2: web, API, worker, gateway
 Visitors  -> HTTPS ALB -> public viewer / isolated-app gateway
 
@@ -46,7 +46,7 @@ EC2 -> ECS/Fargate -> application RDS   (non-root apps, no task IAM role)
 | Private EC2, instance profile, SSM role attachment                           | Operator roles/SSO, state bucket/key and optional KMS key                                     |
 | Two PostgreSQL 17 Multi-AZ RDS instances                                     | Public Route 53 hosted zones and domain ownership                                             |
 | Private/versioned S3 and GuardDuty upload protection                         | Entra/OneLogin OIDC applications, tenant MFA and app assignment                               |
-| Platform ECR repositories, ECS cluster, Cloud Map namespace                  | The two IdP Secrets Manager secret values                                                     |
+| Platform ECR repositories, ECS cluster, Cloud Map namespace | Entra secret value; optional OneLogin secret only if enabled |
 | Runtime IAM roles/boundary, logs, application settings secret **container**  | Application settings secret **value**, bootstrap subject, backups of the encryption key       |
 | Six interface endpoints, S3 gateway endpoint, VPC-wide Resolver DNS Firewall | Budget/notification ownership, monitoring/alert integrations, recovery and retention approval |
 
@@ -65,32 +65,36 @@ Ask the human for missing values. Secret **ARNs** may be supplied; secret **valu
 | At least two public subnet IDs                                     | `public_subnet_ids`; distinct AZs, internet routing, ALB capacity                                                        |
 | At least two private subnet IDs                                    | `private_subnet_ids`; distinct AZs; no public-IP assignment                                                              |
 | All associated private route-table IDs                             | `private_route_table_ids`; restricted S3 endpoint applies here                                                           |
-| Platform FQDN and public hosted zone ID                            | `domain`, `hosted_zone_id`, e.g. `sg1.example.com`                                                                       |
-| App domain and its public hosted zone ID                           | `apps_domain`, `apps_hosted_zone_id`, e.g. `apps.example-apps.com`                                                       |
-| Two IdP secret ARNs                                                | `entra_secret_arn`, `onelogin_secret_arn`; exact account/region and access approval                                      |
+| Platform FQDN and public hosted zone ID                            | `domain` defaults to `sg1.chickensoup.dev`; supply `hosted_zone_id` for the authoritative public `chickensoup.dev` zone      |
+| App domain and its public hosted zone ID | `apps_domain` defaults to `apps.chickensoup.dev`; `apps_hosted_zone_id` defaults to the platform zone |
+| IdP secret ARNs | `entra_secret_arn` required; `onelogin_secret_arn` only when `enable_onelogin=true` (default false) |
 | Instance/database classes                                          | `instance_type` defaults to `t3.medium`; `db_instance_class` to `db.t4g.medium`; verify region availability and capacity |
 | State backend details                                              | State bucket, exact key, region, optional KMS ARN; see `backend.hcl.example`                                             |
 | Initial administrator's immutable Cognito `sub`                    | Needed after initial federation, before first application identity creation                                              |
 | Approved budget, data classification, operator and recovery owners | Include two Multi-AZ DBs, NAT, endpoints, Cognito Plus, GuardDuty, DNS Firewall, Fargate, logs, storage                  |
 
-**Different registrable domains are required.** `sg1.example.com` and `apps.example.com` are not acceptable isolation: generated JavaScript could set parent-domain cookies. The backend checks the public suffix list. Do not weaken that check.
+**Separate browser origins are required; separate registrations are not.** Use `sg1.chickensoup.dev` for the trusted platform and `<slug>.apps.chickensoup.dev` for generated code. The namespaces must not overlap. Follow [shared-domain cookie/CSRF hardening and live acceptance](COOKIE_SECURITY.md); never serve generated JavaScript directly on the platform origin.
+
+The platform's DNS A alias must target the HTTPS ALB, not a public EC2 IP. EC2 remains private in Osaka. Confirm the `chickensoup.dev` zone's public delegation and ACM validation; do not change registrar delegation or unrelated records without separate approval. Browsers require HTTPS for `.dev` domains.
+
+Published app viewer URLs are **`https://sg1.chickensoup.dev/projects/{app-slug-id}`**. The trusted viewer keeps this URL in the address bar and embeds `https://<slug>.apps.chickensoup.dev`. This path does not replace `apps_domain` or authorize same-origin hosting of generated HTML/JavaScript. Legacy root-level viewer URLs redirect to the new path.
 
 ## 4. Approval gates and deliverables
 
 | Gate                | Required evidence and human approval                                                                                                                  |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A — prerequisites   | Confirmed inputs, existing-resource ownership, dedicated VPC, state security, identity configuration, cost envelope, permission separation            |
-| B — infrastructure  | Reviewed exact revision and saved Terraform plan, all planned IAM/SG/DNS changes, replacements/deletions, and resolution of the blocker in section 5  |
+| B — infrastructure | Reviewed exact revision and saved Terraform plan, IAM/SG/DNS changes, replacements/deletions, authentication egress and shared-domain requirements in section 5 |
 | C — release         | Reviewed clean commit, approved image/release publication and SSM/SQL/migration/service changes, secret/bootstrap readiness, backup and rollback plan |
-| D — employee access | Both IdPs and all live acceptance/security/recovery checks pass; controlled memberships/offboarding and operations ownership approved                 |
+| D — employee access | All enabled IdPs and live acceptance/security/recovery checks pass; memberships/offboarding and operations ownership approved |
 
 Approval of one gate does not imply approval of later gates. Stop if credentials/account, code revision, variables, or the saved plan changes.
 
-## 5. Known deployment blocker: ALB authentication egress
+## 5. Authentication network and browser requirements
 
-**As currently defined in `network.tf`, `aws_security_group.alb` has outbound rules only to the control SG on TCP 42069/8081. It lacks outbound TCP 443 to Cognito's token/user-info endpoints.** ALB authentication requires this server-side HTTPS connection. A successful Terraform validation or initial login redirect will not prove it works.
+`network.tf` now includes `alb_auth_https`, allowing ALB outbound TCP 443 to Cognito's dynamic public token/user-info endpoints, in addition to control-target ports 42069/8081. Review the destination scope, routes and NACLs in the saved plan. A successful Terraform validation or initial login redirect does not prove a complete authentication flow works.
 
-Before Gate B, propose and obtain approval for an explicit Terraform-managed ALB HTTPS egress rule and verify its route/NACL path. See the [network reference](NETWORK.md#required-correction-alb-to-cognito-https). Do not silently add a console rule, enable all egress, remove `authenticate-cognito`, or treat this document as permission to patch/apply it. Until resolved and tested, report **BLOCKED**, not production-ready.
+Before Gate B, review the [network reference](NETWORK.md#required-correction-alb-to-cognito-https) and [shared-domain cookie requirements](COOKIE_SECURITY.md). Verify actual ALB host-prefixed base/shard cookies and exact-Origin mutation checks before Gate D. Do not silently add console rules, enable all egress, remove `authenticate-cognito`, or weaken cookie prefixes. These documents do not authorize apply.
 
 Also verify prerequisite endpoint conflicts, DNS allowlist compatibility, IAM service/resource support, scan mode, and actual RDS role/database provisioning in the chosen account. These are live acceptance requirements, not proven by local tests.
 
@@ -118,7 +122,7 @@ If the operator uses IAM Identity Center, they may need to run `aws sso login --
 
 Inspect VPCs/subnets/route tables/endpoints/NACLs using the commands in [NETWORK.md](NETWORK.md). Check service quotas for interface endpoint IPs, ALB addresses, RDS/EC2 classes, Fargate vCPU, CodeBuild concurrent builds, ECR repositories, and IAM roles. Verify ECR registry scanning is **BASIC**, not enhanced; do not change an account-wide scanning setting without separate approval.
 
-Inspect IdP secret metadata with `describe-secret`, **not** `get-secret-value` into model output. Only the Terraform process and approved secret bootstrap process need those secret values. Confirm Entra is tenant-specific, both IdPs enforce app assignment/MFA, and the client configurations return `openid email profile` claims.
+Inspect enabled IdP secret metadata with `describe-secret`, **not** `get-secret-value` into model output. Only the Terraform process and approved secret bootstrap process need those values. Confirm Entra is tenant-specific, enabled IdPs enforce app assignment/MFA, and clients return `openid email profile` claims. OneLogin is disabled by default and needs no secret until explicitly enabled.
 
 Verify `../../../scripts/aws/publish.sh` is operating on the intended repository/revision. Existing drift or a non-empty working tree must be understood, not reset/discarded.
 
@@ -131,9 +135,9 @@ Have the platform/security owner provision missing prerequisites under its own a
 3. Scoped Terraform, publisher, validation, secret-bootstrap, and SSM operator roles. See [IAM.md](IAM.md). Do not attach a runtime role to a human or CI publisher.
 4. Public hosted zones/delegation and OIDC clients. The two callbacks are deliberately different:
    - Entra/OneLogin OIDC clients redirect to `https://<name>-<account>.auth.<region>.amazoncognito.com/oauth2/idpresponse`.
-   - Cognito's ALB app client redirects to `https://<platform-domain>/oauth2/idpresponse`.
-   - Cognito logout returns to `https://<platform-domain>/signed-out`.
-5. The two IdP Secrets Manager entries, each holding `{"issuer":"https://...","client_id":"...","client_secret":"..."}`. The human must populate secret values outside chat/tool transcripts. Do not put values in `tfvars`.
+   - Cognito's ALB app client redirects to `https://sg1.chickensoup.dev/oauth2/idpresponse`.
+   - Cognito logout returns to `https://sg1.chickensoup.dev/signed-out`.
+5. The Entra Secrets Manager entry uses [entra.json.example](../../../scripts/aws/entra.json.example): `ENTRA_SECRET_1` is the tenant ID in the issuer URL, `ENTRA_SECRET_2` the client ID, and `ENTRA_SECRET_3` the client secret value. These are placeholders, not deployable credentials; replace them privately before deployment. A OneLogin entry with the same JSON field structure is needed only if enabled. The human must populate real values outside chat/tool transcripts and the Git checkout. Do not put secret values in `tfvars`.
 
 Never overwrite an existing endpoint, hosted zone, state backend, secret, or service-linked role because a create operation reports a conflict. Establish ownership; propose import/reuse or a design change and obtain approval.
 
@@ -231,9 +235,9 @@ Perform the full [mandatory acceptance checklist](../README.md#mandatory-accepta
 | Test                   | Pass condition                                                                                                                                           |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | HTTPS/routing          | Valid platform and wildcard certificates; HTTP redirects; unknown hosts reject; `/signed-out` works without auth                                         |
-| Entra and OneLogin     | Both complete the entire ALB callback; required MFA/assignment; forged/expired/wrong-signer identities rejected                                          |
+| Enabled identity providers | Entra completes the full ALB callback; test OneLogin only if enabled; required MFA/assignment; forged/expired/wrong-signer identities rejected |
 | Employee roles         | Initial admin correct; new employee has no implicit access; read/write/admin rules and deactivation tested                                               |
-| Public viewer boundary | Published `/{slug}` viewers work without employee SSO; private/password app access still enforced; no direct Fargate public access                       |
+| Public viewer boundary | Published `/projects/{app-slug-id}` viewers work without employee SSO; private/password app access still enforced; generated code remains off-origin; no direct Fargate public access |
 | S3 uploads             | Authorized benign upload; pending/unsafe scans deny download; clean scan enables exact attachment; no public/wrong-project access                        |
 | GuardDuty              | Plan ACTIVE, uploads prefix and tagging correct; approved inert EICAR test only in an approved test project, never real malware                          |
 | Build/deploy           | New project survives IAM propagation; CodeBuild pushes its own repo; clean scan, digest pinning, Fargate init/TLS/HTTP checks and publication succeed    |
@@ -247,7 +251,7 @@ Do not manually add clean-scan tags or bypass ECR failures. A scan/health timeou
 ## 13. Failure handling and rollback
 
 - Missing permission: identify which principal failed (deployer, publisher, EC2, CodeBuild, ECS execution, GuardDuty, or SSM human), action/resource/context and any SCP/boundary/key/endpoint/bucket denial. Use [IAM troubleshooting](IAM.md#7-diagnosing-accessdenied). Request a scoped reviewed correction.
-- Login redirects then fails: inspect the ALB authentication HTTPS egress blocker first, then endpoint reachability, callbacks, IdP assignments, scopes and sanitized ALB auth metrics. Never log JWTs/client secrets.
+- Login redirects then fails: inspect the deployed ALB authentication HTTPS egress rule, then endpoint reachability, callbacks, enabled IdP assignments, scopes and sanitized ALB auth metrics. Never log JWTs/client secrets.
 - Fargate start fails: check service events and sanitized stopped reasons, execution role, endpoint/S3-layer access, secret ARN and trusted init image, then DB TLS. Do not give the app a task role or public IP.
 - SQL provisioning fails: inspect actual PostgreSQL 17/RDS privileges and database ownership with the DBA. Do not give generated roles RDS master credentials, superuser, or other projects' roles.
 - Upload stays quarantined: check GuardDuty ACTIVE/tagging/EventBridge/role/bucket policy and supported file limits. Unsupported, failed, skipped, and threat results must remain unavailable.

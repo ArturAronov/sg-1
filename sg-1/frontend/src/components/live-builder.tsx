@@ -239,7 +239,7 @@ export function LiveBuilder({
                 ? "Provisioning failed"
                 : "Starting container…"}
           </span>
-          <Link className="button secondary" href={`/${slug}`} target="_blank">
+          <Link className="button secondary" href={`/projects/${slug}`} target="_blank">
             Open app
             <Icon name="external" size={14} />
           </Link>
@@ -381,7 +381,7 @@ export function LiveBuilder({
               <span className="preview-dot" />
               Live preview
             </span>
-            <code>/{slug}</code>
+            <code>/projects/{slug}</code>
             <button
               className="icon-button"
               aria-label="Refresh preview"
@@ -431,10 +431,18 @@ export function LiveBuilder({
                 value={mode}
                 onChange={(e) => setMode(e.target.value as typeof mode)}
               >
+                <option value="members">Project members only — employee sign-in required</option>
                 <option value="password">Password protected</option>
                 <option value="public">Public — anyone on the internet</option>
               </select>
             </label>
+            {mode === "members" && (
+              <p>
+                Only active employees explicitly assigned to this project can access the
+                application, including its direct app URL. Department or platform administrator
+                status alone does not grant app access.
+              </p>
+            )}
             {mode === "password" && (
               <label>
                 Application password
@@ -471,8 +479,9 @@ export function LiveBuilder({
             </button>
             <p role="status">{sharingMessage}</p>
             <p className="runtime-note">
-              Employee preview stays protected. New apps deny visitors until a password is set or
-              public access is explicitly enabled.
+              New apps are restricted to project members. Existing password/public settings are
+              preserved until an administrator changes them. Membership and account status are
+              checked on every restricted app request.
             </p>
           </form>
         </details>

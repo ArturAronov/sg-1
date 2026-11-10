@@ -8,6 +8,7 @@ output "deployment" {
     SG1_ALB_ARN                 = aws_lb.ingress.arn
     SG1_COGNITO_ISSUER          = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.employees.id}"
     SG1_COGNITO_CLIENT_ID       = aws_cognito_user_pool_client.alb.id
+    SG1_IDENTITY_PROVIDERS      = join(",", sort(tolist(local.enabled_identity_providers)))
     SG1_COGNITO_DOMAIN          = "https://${aws_cognito_user_pool_domain.employees.domain}.auth.${var.region}.amazoncognito.com"
     SG1_S3_BUCKET               = aws_s3_bucket.files.id
     SG1_ECS_CLUSTER_ARN         = aws_ecs_cluster.apps.arn

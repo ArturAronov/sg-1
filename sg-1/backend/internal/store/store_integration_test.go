@@ -103,7 +103,7 @@ func TestIntegrationProjectCreation(t *testing.T) {
 	if err != nil || !created {
 		t.Fatal(created, err)
 	}
-	if p.AccessMode != "password" || p.Status != "provisioning" || p.Role != "admin" {
+	if p.AccessMode != "members" || p.Status != "provisioning" || p.Role != "admin" {
 		t.Fatalf("unsafe defaults: %+v", p)
 	}
 	for _, table := range []string{"projects", "project_memberships", "project_access_settings", "provisioning_jobs", "outbox_events", "audit_events"} {

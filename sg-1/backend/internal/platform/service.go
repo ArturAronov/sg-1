@@ -183,8 +183,8 @@ func (s *Service) SetAccess(ctx context.Context, u domain.User, slug, mode, pass
 	if p.Role != "admin" {
 		return domain.ErrForbidden
 	}
-	if mode != "public" && mode != "password" {
-		return errors.New("choose public or password access")
+	if mode != "public" && mode != "password" && mode != "members" {
+		return errors.New("choose project members, public or password access")
 	}
 	var hash *string
 	if password != "" {

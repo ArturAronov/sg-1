@@ -15,8 +15,9 @@ for suffix in control apps; do
 done
 pool=$(jq -r '.SG1_COGNITO_ISSUER | split("/")[-1]' "$config")
 client=$(jq -r .SG1_COGNITO_CLIENT_ID "$config")
-aws cognito-idp describe-user-pool-client --region "$region" --user-pool-id "$pool" --client-id "$client" | jq -e '.UserPoolClient.SupportedIdentityProviders | contains(["Entra", "OneLogin"])' >/dev/null
+providers=$(jq -ce '.SG1_IDENTITY_PROVIDERS | split(",") | select(index("Entra") != null and all(.[]; . == "Entra" or . == "OneLogin"))' "$config")
+aws cognito-idp describe-user-pool-client --region "$region" --user-pool-id "$pool" --client-id "$client" | jq -e --argjson expected "$providers" '(.UserPoolClient.SupportedIdentityProviders | sort) == ($expected | sort)' >/dev/null
 instance=$(jq -r .SG1_INSTANCE_ID "$config")
 aws ec2 describe-instances --region "$region" --instance-ids "$instance" | jq -e '.Reservations[0].Instances[0] | .MetadataOptions.HttpTokens == "required" and .PublicIpAddress == null' >/dev/null
-printf 'AWS account, private encrypted S3/RDS, both identity providers, and private IMDSv2 EC2 checks passed.\n'
+printf 'AWS account, private encrypted S3/RDS, configured identity providers, and private IMDSv2 EC2 checks passed.\n'
 printf 'Still required: live sign-in, upload/scan/download, isolation, build/deploy/cancel/rollback, and recovery checks in infrastructure/aws/README.md.\n'

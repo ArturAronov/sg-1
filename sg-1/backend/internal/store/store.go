@@ -20,10 +20,10 @@ type Store struct {
 
 func (s *Store) Ping(ctx context.Context) error {
 	var applied int
-	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql','0003_runtime.sql','0004_project_files.sql','0005_build_cancellation.sql','0006_aws_workloads.sql','0007_cloud_cleanup.sql')`).Scan(&applied); err != nil {
+	if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE name IN ('0001_control_plane.sql','0002_llm_credentials.sql','0003_runtime.sql','0004_project_files.sql','0005_build_cancellation.sql','0006_aws_workloads.sql','0007_cloud_cleanup.sql','0008_member_app_access.sql')`).Scan(&applied); err != nil {
 		return err
 	}
-	if applied != 7 {
+	if applied != 8 {
 		return errors.New("control-plane migrations have not been applied")
 	}
 	return nil

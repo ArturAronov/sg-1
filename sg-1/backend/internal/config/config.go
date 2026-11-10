@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -10,6 +11,8 @@ import (
 	"github.com/ArturAronov/sg-1/sg-1/backend/internal/secrets"
 	"golang.org/x/net/publicsuffix"
 )
+
+var dnsHostname = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]*$`)
 
 type Config struct {
 	Environment                                  string
@@ -80,17 +83,18 @@ func Load() (Config, error) {
 			return c, errors.New("production requires AWS runtime and an encryption key")
 		}
 		origin, err := url.Parse(c.PublicURL)
-		if err != nil || origin.Scheme != "https" || origin.Hostname() == "" || origin.Path != "" || origin.RawQuery != "" || origin.User != nil {
+		if err != nil || origin.Scheme != "https" || origin.Hostname() == "" || origin.Path != "" || origin.RawQuery != "" || origin.ForceQuery || origin.Fragment != "" || origin.User != nil || origin.Port() != "" {
 			return c, errors.New("production public URL must be an HTTPS origin")
 		}
 		app, err := url.Parse(strings.ReplaceAll(c.AppOrigin, "{slug}", "example"))
-		if err != nil || !strings.Contains(c.AppOrigin, "{slug}") || app.Scheme != "https" || app.Hostname() == origin.Hostname() || app.Path != "" {
+		if err != nil || app.Scheme != "https" || app.Path != "" || app.RawQuery != "" || app.ForceQuery || app.Fragment != "" || app.User != nil || app.Port() != "" {
 			return c, errors.New("production application origin must be a separate HTTPS wildcard origin")
 		}
-		platformDomain, pErr := publicsuffix.EffectiveTLDPlusOne(origin.Hostname())
-		appDomain, aErr := publicsuffix.EffectiveTLDPlusOne(app.Hostname())
-		if pErr != nil || aErr != nil || platformDomain == appDomain {
-			return c, errors.New("generated applications require a different registrable domain to prevent parent-domain cookie attacks")
+		appNamespace := strings.TrimPrefix(app.Hostname(), "example.")
+		_, pErr := publicsuffix.EffectiveTLDPlusOne(origin.Hostname())
+		_, aErr := publicsuffix.EffectiveTLDPlusOne(appNamespace)
+		if pErr != nil || aErr != nil || !dnsHostname.MatchString(origin.Hostname()) || !dnsHostname.MatchString(appNamespace) || net.ParseIP(origin.Hostname()) != nil || c.AppOrigin != "https://{slug}."+appNamespace || origin.Hostname() == appNamespace || strings.HasSuffix(origin.Hostname(), "."+appNamespace) || strings.HasSuffix(appNamespace, "."+origin.Hostname()) {
+			return c, errors.New("application wildcard namespace must be disjoint from the platform hostname")
 		}
 		if !regexp.MustCompile(`^[a-z]{2}-[a-z]+-[0-9]+$`).MatchString(c.Region) || !strings.HasPrefix(c.ALBARN, "arn:aws:elasticloadbalancing:"+c.Region+":") || !strings.Contains(c.ALBARN, ":loadbalancer/app/") {
 			return c, errors.New("production ALB signer/region is required")

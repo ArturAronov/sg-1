@@ -1,12 +1,15 @@
 # Identity-provider client secrets live in Secrets Manager, never tfvars.
 # Terraform still stores provider configuration in state: encrypt and restrict it.
 data "aws_secretsmanager_secret_version" "entra" { secret_id = var.entra_secret_arn }
-data "aws_secretsmanager_secret_version" "onelogin" { secret_id = var.onelogin_secret_arn }
+data "aws_secretsmanager_secret_version" "onelogin" {
+  count     = var.enable_onelogin ? 1 : 0
+  secret_id = var.onelogin_secret_arn
+}
 locals {
-  idps = {
-    Entra    = jsondecode(data.aws_secretsmanager_secret_version.entra.secret_string)
-    OneLogin = jsondecode(data.aws_secretsmanager_secret_version.onelogin.secret_string)
-  }
+  enabled_identity_providers = var.enable_onelogin ? toset(["Entra", "OneLogin"]) : toset(["Entra"])
+  apps_zone_id               = var.apps_hosted_zone_id != "" ? var.apps_hosted_zone_id : var.hosted_zone_id
+  idps = merge({ Entra = jsondecode(data.aws_secretsmanager_secret_version.entra.secret_string) },
+  var.enable_onelogin ? { OneLogin = jsondecode(data.aws_secretsmanager_secret_version.onelogin[0].secret_string) } : {})
 }
 resource "aws_cognito_user_pool" "employees" {
   name                = "${var.name}-employees"
@@ -17,7 +20,7 @@ resource "aws_cognito_user_pool" "employees" {
   lifecycle { prevent_destroy = true }
 }
 resource "aws_cognito_identity_provider" "company" {
-  for_each      = toset(["Entra", "OneLogin"])
+  for_each      = local.enabled_identity_providers
   user_pool_id  = aws_cognito_user_pool.employees.id
   provider_name = each.value
   provider_type = "OIDC"
@@ -54,7 +57,7 @@ resource "aws_acm_certificate" "ingress" {
 }
 resource "aws_route53_record" "validation" {
   for_each = { for record in aws_acm_certificate.ingress.domain_validation_options : record.domain_name => record }
-  zone_id  = each.key == var.domain ? var.hosted_zone_id : var.apps_hosted_zone_id
+  zone_id  = each.key == var.domain ? var.hosted_zone_id : local.apps_zone_id
   name     = each.value.resource_record_name
   type     = each.value.resource_record_type
   records  = [each.value.resource_record_value]

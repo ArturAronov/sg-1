@@ -15,8 +15,8 @@ For an AI-assisted AWS deployment, give the agent [infrastructure/aws/docs/SETUP
 - Up to three generation/repair attempts are allowed per request. Your provider account pays for model usage. No model call is made merely by saving a key.
 - Failed builds leave the current deployment in place. Restore earlier images from deployment history without replacing the project database.
 - Cancel queued or running builds and restores from the builder. Cancellation prevents publication, interrupts in-flight work, and keeps the build slot occupied until worker cleanup finishes. Provider usage already incurred may still be charged.
-- View applications at `/{project-name}`; build at `/build/{project-name}`. The viewer embeds a separate application origin.
-- Applications default to locked/password mode. An admin sets a visitor password or explicitly enables public access. The gateway protects all paths and WebSocket upgrades; direct app addresses do not bypass the gate.
+- View applications at `/projects/{app-slug-id}`; build at `/build/{app-slug-id}`. Production viewers use `https://sg1.chickensoup.dev/projects/{app-slug-id}` and embed a separate application origin. Previously shared `/{app-slug-id}` links redirect to the new viewer path.
+- New applications default to **project members only**. Project admins may choose public access or retain password protection; existing project settings are preserved. The gateway protects all paths and WebSocket upgrades, including direct app URLs. See [published app permissions](infrastructure/aws/docs/APP_ACCESS.md).
 - Upload/download private project files, up to 10 MiB each. Local object storage is SeaweedFS using the real S3 protocol and a persistent volume. The adapter also supports AWS S3.
 - Download the current application source as a ZIP. Source snapshots, chat, jobs, deployment history, and audit records persist in PostgreSQL.
 

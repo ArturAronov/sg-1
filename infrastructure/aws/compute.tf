@@ -71,7 +71,7 @@ resource "aws_lb_listener_rule" "signed_out" {
   }
 }
 resource "aws_lb_listener_rule" "employees" {
-  for_each     = { pages = { priority = 10, paths = ["/", "/build/*", "/settings/*"] }, api = { priority = 11, paths = ["/api/*", "/login"] } }
+  for_each     = { pages = { priority = 10, paths = ["/", "/build/*", "/settings/*", "/app-access/*"] }, api = { priority = 11, paths = ["/api/*", "/login"] } }
   listener_arn = aws_lb_listener.https.arn
   priority     = each.value.priority
   condition {
@@ -87,7 +87,7 @@ resource "aws_lb_listener_rule" "employees" {
       user_pool_arn              = aws_cognito_user_pool.employees.arn
       user_pool_client_id        = aws_cognito_user_pool_client.alb.id
       user_pool_domain           = aws_cognito_user_pool_domain.employees.domain
-      session_cookie_name        = "SG1AuthSession"
+      session_cookie_name        = "__Host-SG1AuthSession"
       session_timeout            = 3600
       scope                      = "openid email profile"
       on_unauthenticated_request = "authenticate"
@@ -105,7 +105,7 @@ resource "aws_lb_listener_rule" "viewers" {
   condition {
     host_header { values = [var.domain] }
   }
-  # /{project-slug} and static assets are public; the isolated gateway enforces
+  # /projects/{project-slug} and static assets are public; the isolated gateway enforces
   # visitor access, while internal APIs independently verify signed identity.
   action {
     type             = "forward"
@@ -125,7 +125,7 @@ resource "aws_lb_listener_rule" "apps" {
 }
 resource "aws_route53_record" "app" {
   for_each = toset([var.domain, "*.${var.apps_domain}"])
-  zone_id  = each.value == var.domain ? var.hosted_zone_id : var.apps_hosted_zone_id
+  zone_id  = each.value == var.domain ? var.hosted_zone_id : local.apps_zone_id
   name     = each.value
   type     = "A"
   alias {

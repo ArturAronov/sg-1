@@ -74,15 +74,16 @@ For a project named `maintenance-tracker`:
 
 | URL | Purpose |
 | --- | --- |
-| `https://sg-1.ourcompany.net/build/maintenance-tracker` | Authenticated builder, chat, preview, and deployment controls |
-| `https://sg-1.ourcompany.net/maintenance-tracker` | Published application viewer |
+| `https://sg1.chickensoup.dev/build/maintenance-tracker` | Authenticated builder, chat, preview, and deployment controls |
+| `https://sg1.chickensoup.dev/projects/maintenance-tracker` | Published application viewer |
 
 - The viewer embeds the application from an isolated application origin while retaining the requested viewer URL in the address bar.
+- Confirmed AWS hostnames: `sg1.chickensoup.dev` for the platform and `<slug>.apps.chickensoup.dev` for generated apps, using one registered domain with host-prefixed authentication cookies and exact-Origin mutation checks. Entra ID is enabled by default; OneLogin is deferred and opt-in. See infrastructure/aws/docs/COOKIE_SECURITY.md for residual risks and acceptance requirements.
 - The build workspace always requires employee SSO and project authorization.
-- Published applications have two agreed access modes: public and password-protected.
+- Published applications support project-members-only and public access; password protection is retained as an additional mode.
 - Public applications are accessible to anyone on the internet without signing in.
 - Password-protected applications are accessible to anyone with the project password; this is not equivalent to employee identity or per-user authorization.
-- New projects default to password-protected.
+- New projects default to project-members-only, requiring an active employee and an explicit project membership. Existing public/password settings are not automatically changed.
 - Making an application public requires an explicit action.
 - Deployments preserve the existing access setting.
 - Access protection covers the application, APIs, WebSockets, and underlying application address, not just the viewer page.
@@ -340,7 +341,7 @@ Generated applications must have no access to this database or its credentials.
 ### 9.1 Builder and viewer
 
 - `/build/{slug}` is an authenticated Next.js workspace.
-- `/{slug}` is a trusted viewer shell, not arbitrary generated HTML served as SG-1 code.
+- `/projects/{slug}` is a trusted viewer shell, not arbitrary generated HTML served as SG-1 code. Legacy `/{slug}` links redirect to this path.
 - The shell embeds an application hosted on a separate origin, such as `{slug}.<approved-app-domain>`.
 - Prefer a separately registered application domain to strengthen isolation from SG-1. Exact DNS names remain to be chosen.
 - Applications run at `/` on their own origin, reducing framework-specific subpath problems.
@@ -606,7 +607,7 @@ Deliver:
 - Idempotent resource provisioning and placeholder container startup.
 - Project database, private storage allocation, and secret assignment.
 - Builder/viewer routes and isolated application-origin gateway.
-- Password default, password reset, explicit public toggle, and employee-only preview.
+- Members-only default, explicit public toggle, optional password protection/reset, and membership-checked previews for members-only apps.
 
 Acceptance: creating a project without a prompt starts a healthy placeholder; public visitors and password holders see only permitted content; direct app URLs cannot bypass protection; restart does not erase project data.
 

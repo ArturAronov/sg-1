@@ -41,7 +41,7 @@ export default async function LoginPage({
           <p>
             {development
               ? "Use your local development token to open this workspace."
-              : "Use your company’s Microsoft Entra ID or OneLogin account to open this workspace."}
+              : "Use your company’s configured sign-in provider to open this workspace."}
           </p>
           {development && (
             <form action="/api/session" method="post">

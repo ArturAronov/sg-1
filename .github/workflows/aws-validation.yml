@@ -13,8 +13,9 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.5
-      - run: terraform -chdir=infrastructure/aws fmt -check
+      - run: terraform -chdir=infrastructure/aws fmt -check -recursive
       - run: terraform -chdir=infrastructure/aws init -backend=false -lockfile=readonly
       - run: terraform -chdir=infrastructure/aws validate
+      - run: terraform -chdir=infrastructure/aws test
       - run: bash -n scripts/aws/boot.sh scripts/aws/publish.sh scripts/aws/check.sh infrastructure/aws/user-data.sh
       - run: python3 -c "import ast; ast.parse(open('scripts/aws/configure.py').read())"

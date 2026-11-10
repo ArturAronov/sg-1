@@ -141,6 +141,14 @@ func (a *API) runtimeRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, 200, map[string]string{"url": url})
 	}))
+	mux.HandleFunc("GET /v1/projects/{slug}/member-session", wrap(func(w http.ResponseWriter, r *http.Request) {
+		target, err := a.Platform.MemberURL(r.Context(), currentUser(r), r.PathValue("slug"))
+		if err != nil {
+			a.runtimeError(w, r, err)
+			return
+		}
+		writeJSON(w, 200, map[string]string{"url": target})
+	}))
 	mux.HandleFunc("PUT /v1/projects/{slug}/access", wrap(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Mode     string `json:"mode"`
@@ -149,8 +157,8 @@ func (a *API) runtimeRoutes(mux *http.ServeMux) {
 		if !decodeRuntimeBody(w, r, &in) {
 			return
 		}
-		if in.Mode != "public" && in.Mode != "password" || in.Password != "" && (len(in.Password) < 12 || len(in.Password) > 72) {
-			writeError(w, 400, "invalid_access", "Choose public/password access and a password of 12–72 bytes")
+		if in.Mode != "public" && in.Mode != "password" && in.Mode != "members" || in.Password != "" && (len(in.Password) < 12 || len(in.Password) > 72) {
+			writeError(w, 400, "invalid_access", "Choose members/public/password access and a password of 12–72 bytes")
 			return
 		}
 		if err := a.Platform.SetAccess(r.Context(), currentUser(r), r.PathValue("slug"), in.Mode, in.Password); err != nil {

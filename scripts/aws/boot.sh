@@ -14,4 +14,4 @@ compose run --rm migrate
 python3 configure.py grant
 compose up -d --wait api gateway worker web
 url=$(jq -r .SG1_PUBLIC_URL deployment.json)
-printf '\nControl plane is healthy. Verify both company sign-in providers at %s before opening access to employees.\n' "$url"
+printf '\nControl plane is healthy. Verify configured company sign-in providers at %s before opening access to employees.\n' "$url"

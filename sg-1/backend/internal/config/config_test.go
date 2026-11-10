@@ -73,7 +73,7 @@ func TestAWSProductionConfigurationFailsClosed(t *testing.T) {
 	values := map[string]string{
 		"SG1_ENV": "production", "SG1_RUNTIME": "aws", "SG1_DATABASE_URL": "postgres://runtime:password@control.example/sg1?sslmode=verify-full&sslrootcert=/ca.pem",
 		"SG1_PROJECT_DATABASE_URL": "postgres://admin:password@apps.example/sg1_apps?sslmode=verify-full&sslrootcert=/ca.pem",
-		"SG1_PUBLIC_URL":           "https://sg1.example.com", "SG1_APP_ORIGIN": "https://{slug}.apps.example-apps.com", "AWS_REGION": "us-east-1",
+		"SG1_PUBLIC_URL":           "https://sg1.chickensoup.dev", "SG1_APP_ORIGIN": "https://{slug}.apps.chickensoup.dev", "AWS_REGION": "us-east-1",
 		"SG1_ALB_ARN":        "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/sg1/abc",
 		"SG1_COGNITO_ISSUER": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test", "SG1_COGNITO_CLIENT_ID": "test-client",
 		"SG1_CREDENTIALS_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "SG1_S3_BUCKET": "private-files",
@@ -89,7 +89,15 @@ func TestAWSProductionConfigurationFailsClosed(t *testing.T) {
 		{"SG1_DEV_TOKEN", "shared-development-token"}, {"SG1_PUBLIC_URL", "http://sg1.example.com"},
 		{"SG1_DATABASE_URL", "postgres://runtime:password@control.example/sg1?sslmode=disable"},
 		{"SG1_PROJECT_DATABASE_URL", ""}, {"SG1_ALB_ARN", ""}, {"SG1_COGNITO_CLIENT_ID", ""},
-		{"SG1_APP_ORIGIN", "https://{slug}.apps.example.com"},
+		{"SG1_APP_ORIGIN", "https://sg1.chickensoup.dev/projects/{slug}"},
+		{"SG1_APP_ORIGIN", "https://{slug}.chickensoup.dev"},
+		{"SG1_APP_ORIGIN", "https://{slug}.sg1.chickensoup.dev"},
+		{"SG1_APP_ORIGIN", "https://{slug}.apps.chickensoup.dev?x=1"},
+		{"SG1_APP_ORIGIN", "https://{slug}.apps.chickensoup.dev#fragment"},
+		{"SG1_APP_ORIGIN", "https://user@{slug}.apps.chickensoup.dev"},
+		{"SG1_APP_ORIGIN", "https://prefix-{slug}.apps.chickensoup.dev"},
+		{"SG1_APP_ORIGIN", "https://{slug}.{slug}.apps.chickensoup.dev"},
+		{"SG1_APP_ORIGIN", "https://{slug}.dev"},
 		{"SG1_S3_BUCKET", ""}, {"SG1_S3_ENDPOINT", "http://local-s3"}, {"AWS_ACCESS_KEY_ID", "static-key"},
 	} {
 		t.Run(test.key, func(t *testing.T) {

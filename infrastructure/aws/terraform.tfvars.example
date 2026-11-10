@@ -4,9 +4,12 @@ vpc_id = "vpc-REPLACE"
 public_subnet_ids = ["subnet-PUBLIC_A", "subnet-PUBLIC_B"]
 private_subnet_ids = ["subnet-PRIVATE_A", "subnet-PRIVATE_B"]
 private_route_table_ids = ["rtb-PRIVATE_A", "rtb-PRIVATE_B"]
+# Public Route 53 hosted zone for chickensoup.dev.
 hosted_zone_id = "Z_REPLACE"
-apps_hosted_zone_id = "Z_APPS_REPLACE"
-domain = "sg1.example.com"
-apps_domain = "apps.example-apps.com"
+# App records use the same chickensoup.dev zone unless overridden.
+# apps_hosted_zone_id = "Z_SEPARATE_APP_ZONE"
+domain = "sg1.chickensoup.dev"
+apps_domain = "apps.chickensoup.dev"
 entra_secret_arn = "arn:aws:secretsmanager:ap-northeast-3:123456789012:secret:company/entra-REPLACE"
-onelogin_secret_arn = "arn:aws:secretsmanager:ap-northeast-3:123456789012:secret:company/onelogin-REPLACE"
+enable_onelogin = false
+# onelogin_secret_arn = "arn:aws:secretsmanager:ap-northeast-3:123456789012:secret:company/onelogin-REPLACE"
